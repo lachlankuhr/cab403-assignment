@@ -1,4 +1,4 @@
-# Process Management and Distributed# Process Management and Distributed Computing - CAB403 Computing - CAB403
+# Process Management and Distributed Process Management and Distributed Computing - CAB403 Computing - CAB403
 
 ## Project Layout
 ### Source Code
