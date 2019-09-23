@@ -1,2 +1,2 @@
 #!/bin/bash
-./build/client
+./build/client 127.0.0.1 7777
