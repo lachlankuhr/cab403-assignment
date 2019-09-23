@@ -1,5 +1,5 @@
 # Target to compile and build both client and server
-all: server client
+all: clean server client
 
 # Target to compile server
 server:
