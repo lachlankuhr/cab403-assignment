@@ -1,1 +1,0 @@
-# Simple run script to connect both client and server
