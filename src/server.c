@@ -13,24 +13,24 @@
 #include <fcntl.h> 
 #include "server.h"
 
-#define BACKLOG 10     /* how many pending connections queue will hold */
+#define BACKLOG 10     // How many pending connections queue will hold
 
 // Variable to keep program running until SIGINT occurs
 static volatile sig_atomic_t keep_running = 1;
 
 // Global variables
 int port_number; 
-int sockfd, new_fd;  /* listen on sock_fd, new connection on new_fd */
-struct sockaddr_in server_addr;    /* server address information */
-struct sockaddr_in client_addr;    /* client address information */
+int sockfd, new_fd;                // Listen on sock_fd, new connection on new_fd
+struct sockaddr_in server_addr;    // Server address information
+struct sockaddr_in client_addr;    // Client address information
 socklen_t sin_size;
 
 
 int main(int argc, char ** argv) {
-    // setup the signal handling for SIGINT signal
+    // Setup the signal handling for SIGINT signal
     signal(SIGINT, handleSIGINT);
 
-    // start the server
+    // Start the server
     startServer(argc, argv);
 
     int client_id = 1;
@@ -88,15 +88,14 @@ void startServer(int argc, char ** argv) {
     // Generate socket
 	if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
 		perror("socket");
-		exit(1);
+		exit(0);
 	}
 
-	/* generate the end point */
-	server_addr.sin_family = AF_INET;              /* host byte order */
-	server_addr.sin_port = htons(port_number);     /* short, network byte order */
-	server_addr.sin_addr.s_addr = INADDR_ANY;      /* auto-fill with my IP */
-	/* bzero(&(server_addr.sin_zero), 8);*/        /* zero the rest of the struct */
-    // Andrew: Why isn't the above line used?
+	// Generate the end point
+	server_addr.sin_family = AF_INET;              // Host byte order
+	server_addr.sin_port = htons(port_number);     // Short, network byte order
+	server_addr.sin_addr.s_addr = INADDR_ANY;      // Auto-fill with my IP
+	bzero(&(server_addr.sin_zero), 8);             // Zero the rest of the struct
 
     // Set options allowing address and port reuse
     int reuse = 1;
@@ -108,23 +107,22 @@ void startServer(int argc, char ** argv) {
         perror("setsockopt(SO_REUSEPORT) failed");
     #endif
 
-	/* bind the socket to the end point */
+	// Bind the socket to the end point
 	if (bind(sockfd, (struct sockaddr *)&server_addr, 
-    sizeof(struct sockaddr)) \
-	== -1) {
+    sizeof(struct sockaddr)) == -1) {
 		perror("bind");
-		exit(1);
+		exit(-1);
 	}
 
-	/* start listnening */
+	// Start listnening
 	if (listen(sockfd, BACKLOG) == -1) {
 		perror("listen");
-		exit(1);
+		exit(0);
 	}
 
     // Set socket to be non-blocking
-    fcntl(sockfd, F_SETFL, O_NONBLOCK); /* Change the socket into non-blocking state	*/
-    fcntl(new_fd, F_SETFL, O_NONBLOCK); /* Change the socket into non-blocking state	*/
+    fcntl(sockfd, F_SETFL, O_NONBLOCK); // Socket to non-blocking state
+    fcntl(new_fd, F_SETFL, O_NONBLOCK); // Socket to non-blocking state
     
 
 	printf("Server is listening on port: %i.\n", port_number);
