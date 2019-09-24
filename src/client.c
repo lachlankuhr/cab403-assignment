@@ -145,7 +145,7 @@ void subscribe(int channel_id, int *subscribed_channels) {
 void channels(int* subscribed_channels) {
     for (int i = 0; i < NUMCHANNELS; i++) {
         if (subscribed_channels[i] == 1) {
-            printf("%i\tnum_messages\tread_messages\tunread_messages\n", i);
+            printf("%i\tnum_messages\tread_messages\tunread_messages\n", i); // num_messages, read_messages etc placeholder values
         }
     }
 }
