@@ -13,7 +13,7 @@ The make file has 4 targets for "all", "server", "client", and "clean". The name
 
 * Run ```make``` in the top level directory to build the client and server. 
 * Run ```make server``` the top level directory to just build the server. 
-* Run ```make server``` the top level directory to just build the client.
+* Run ```make client``` the top level directory to just build the client.
 * Run ```make clean``` the top level directory to delete all contents in the build folder.  
 
 ### Running
@@ -21,7 +21,7 @@ The make file has 4 targets for "all", "server", "client", and "clean". The name
 * ```./run_client.sh``` runs the client with the command line parameters 127.0.0.1 and 7777.
 * ```./run_server.sh``` runs the server with command line paramater 7777.
 
-In order to run this files, you may need to execute
+In order to run these files, you may need to execute
 
 ```
 sudo chmod +x run_client.sh

@@ -40,6 +40,8 @@ int main(int argc, char ** argv) {
 			continue;
 		}
 		printf("server: got connection from %s\n", inet_ntoa(client_addr.sin_addr));
+
+        // TODO: client IDs
         if (send(new_fd, "Welcome! Your client ID is 1.\n", 35, 0) == -1) {
             perror("send");
         }
@@ -52,6 +54,9 @@ int main(int argc, char ** argv) {
 void handleSIGINT(int _) {
     (void)_; // To stop the compiler complaining
     printf("Handling the signal gracefully...\n");
+
+    // TODO: Handle shutdown gracefully (in particular so ports don't stay stuck)
+
     keep_running = 0;
 }
 
@@ -74,13 +79,24 @@ void startServer(int argc, char ** argv) {
 	}
 
 	/* generate the end point */
-	server_addr.sin_family = AF_INET;         /* host byte order */
+	server_addr.sin_family = AF_INET;              /* host byte order */
 	server_addr.sin_port = htons(port_number);     /* short, network byte order */
-	server_addr.sin_addr.s_addr = INADDR_ANY; /* auto-fill with my IP */
-		/* bzero(&(server_addr.sin_zero), 8);   ZJL*/     /* zero the rest of the struct */
+	server_addr.sin_addr.s_addr = INADDR_ANY;      /* auto-fill with my IP */
+	/* bzero(&(server_addr.sin_zero), 8);*/        /* zero the rest of the struct */
+
+    // Set options allowing address and port reuse
+    int reuse = 1;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse)) < 0)
+        perror("setsockopt(SO_REUSEADDR) failed");
+
+    #ifdef SO_REUSEPORT
+    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, (const char*)&reuse, sizeof(reuse)) < 0) 
+        perror("setsockopt(SO_REUSEPORT) failed");
+    #endif
 
 	/* bind the socket to the end point */
-	if (bind(sockfd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr)) \
+	if (bind(sockfd, (struct sockaddr *)&server_addr, 
+    sizeof(struct sockaddr)) \
 	== -1) {
 		perror("bind");
 		exit(1);

@@ -59,7 +59,8 @@ int main(int argc, char ** argv) {
         printf("Channel ID entered: %i.\n", channel_id);
 
         // Determine what command was entered
-        // Using strncmp instead of strcmp due to the way it is null terminated if no channel number 
+        // Using strncmp instead of strcmp due to the way it is null terminated if no channel number
+        // TODO: Get strcmp working (deal with line ending crap), so e.g. SUBS doesn't work.
         if (strncmp(command_name, "SUB", 3) == 0 && channel_id != -1) {
             printf("SUB command entered.\n");
         } else if (strncmp(command_name, "CHANNELS", 8) == 0) {
@@ -112,10 +113,10 @@ void startClient(int argc, char ** argv) {
 		exit(1);
 	}
 
-	server_addr.sin_family = AF_INET;      /* host byte order */
+	server_addr.sin_family = AF_INET;             /* host byte order */
 	server_addr.sin_port = htons(port_number);    /* short, network byte order */
 	server_addr.sin_addr = *((struct in_addr *)he->h_addr);
-	bzero(&(server_addr.sin_zero), 8);     /* zero the rest of the struct */
+	bzero(&(server_addr.sin_zero), 8);            /* zero the rest of the struct */
 
     if (connect(sockfd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr)) == -1) {
 		perror("connect");
