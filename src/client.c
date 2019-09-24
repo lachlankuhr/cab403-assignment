@@ -10,14 +10,19 @@
 #include <unistd.h>
 #include "client.h"
 
+void subscribe(int channel_id, int *subscribed_channels);
+void channels(int* subscribed_channels);
+void unsubscribe(int channel_id, int *subscribed_channels);
+
 #define MAXDATASIZE 1024
 #define COMMANDSIZE 50
+#define NUMCHANNELS 255
 
 // Global variables
 int port_number; 
 int sockfd;  
 struct hostent *he;
-struct sockaddr_in server_addr; 
+struct sockaddr_in server_addr;
 
 // Receiving data
 int numbytes;  
@@ -29,7 +34,11 @@ int main(int argc, char ** argv) {
     char command[COMMANDSIZE];
     char * command_name;
     char * msg;
-    int channel_id; 
+    int channel_id;
+    int subscribed_channels[NUMCHANNELS]; // array for subscribed channels
+    for (int i = 0; i < NUMCHANNELS; i++) {
+        subscribed_channels[i] = 0; // initialise subscribed channels array to 0
+    }
 
     // Continue to look for new comamnds
     while (1) {
@@ -53,7 +62,6 @@ int main(int argc, char ** argv) {
             channel_id = atoi(sep);
             msg = sep;
         }
-        
 
         printf("Command entered: %s.\n", command_name);
         printf("Channel ID entered: %i.\n", channel_id);
@@ -62,11 +70,11 @@ int main(int argc, char ** argv) {
         // Using strncmp instead of strcmp due to the way it is null terminated if no channel number
         // TODO: Get strcmp working (deal with line ending crap), so e.g. SUBS doesn't work.
         if (strncmp(command_name, "SUB", 3) == 0 && channel_id != -1) {
-            printf("SUB command entered.\n");
+            subscribe(channel_id, subscribed_channels);
         } else if (strncmp(command_name, "CHANNELS", 8) == 0) {
-            printf("CHANNELS command entered.\n");
+            channels(subscribed_channels);
         } else if (strncmp(command_name, "UNSUB", 5) == 0 && channel_id != -1) {
-            printf("UNSUB command entered.\n");
+            unsubscribe(channel_id, subscribed_channels);
         } else if (strncmp(command_name, "NEXT", 4) == 0 && channel_id != -1) {
             printf("NEXT command with channel ID entered.\n");
         } else if (strncmp(command_name, "NEXT", 4) == 0 && channel_id == -1) {
@@ -88,6 +96,48 @@ int main(int argc, char ** argv) {
 
     close(sockfd);
     return 0;
+}
+
+// Subscribe to channel - I think this is okay to just be stored on the client
+void subscribe(int channel_id, int *subscribed_channels) {
+    // check for invalid id
+    if (channel_id < 0 || channel_id > NUMCHANNELS) {
+        printf("Invalid channel: %d.\n", channel_id);
+        return;
+    }
+    // check if already subscribed to channel
+    if (subscribed_channels[channel_id] == 1) {
+        printf("Already subscribed to channel %d.\n", channel_id);
+    } else { // subscribe to channel
+        subscribed_channels[channel_id] = 1;
+        printf("Subscribed to channel %d.\n", channel_id);
+    }
+    return;
+}
+
+// For now, just get this printing out the channels
+void channels(int* subscribed_channels) {
+    for (int i = 0; i < NUMCHANNELS; i++) {
+        if (subscribed_channels[i] == 1) {
+            printf("%i\tnum_messages\tread_messages\tunread_messages\n", i);
+        }
+    }
+}
+
+void unsubscribe(int channel_id, int *subscribed_channels) {
+    // check for invalid id
+    if (channel_id < 0 || channel_id > NUMCHANNELS) {
+        printf("Invalid channel: %d.\n", channel_id);
+        return;
+    }
+    // check if already subscribed to channel
+    if (subscribed_channels[channel_id] == 0) {
+        printf("Not subscribed to channel %d.\n", channel_id);
+    } else { // unsubscribe to channel
+        subscribed_channels[channel_id] = 0;
+        printf("Unsubscribed from channel %d.\n", channel_id);
+    }
+    return;
 }
 
 void setClientPort(int argc, char ** argv) {
