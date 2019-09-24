@@ -1,5 +1,6 @@
 #include <stdio.h> 
 #include <stdlib.h> 
+#include <string.h>
 #include <errno.h> 
 #include <string.h> 
 #include <netdb.h> 
@@ -10,6 +11,7 @@
 #include "client.h"
 
 #define MAXDATASIZE 1024
+#define COMMANDSIZE 50
 
 // Global variables
 int port_number; 
@@ -21,18 +23,68 @@ struct sockaddr_in server_addr;
 int numbytes;  
 char buf[MAXDATASIZE];
 
-
 int main(int argc, char ** argv) {
     startClient(argc, argv);
+    // Abitarily using sizes
+    char command[COMMANDSIZE];
+    char * command_name;
+    char * msg;
+    int channel_id; 
 
-    if ((numbytes=recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
-		perror("recv");
-		exit(1);
-	}
+    // Continue to look for new comamnds
+    while (1) {
+        // Reset the variables
+        channel_id = -1;
 
-	buf[numbytes] = '\0';
+        // Read the input from the user
+        fgets(command, COMMANDSIZE, stdin);
+        char * sep = strtok(command," ");
+        if (sep != NULL) {
+            command_name = sep;
+            sep = strtok(NULL, " ");
+        } 
+        if (sep != NULL) {
+            channel_id = atoi(sep);
+            sep = strtok(NULL, "");
+        } else {
+            channel_id = -1; // no channel id associated with this command
+        }
+        if (sep != NULL) {
+            channel_id = atoi(sep);
+            msg = sep;
+        }
+        
 
-	printf("%s", buf);
+        printf("Command entered: %s.\n", command_name);
+        printf("Channel ID entered: %i.\n", channel_id);
+
+        // Determine what command was entered
+        // Using strncmp instead of strcmp due to the way it is null terminated if no channel number 
+        if (strncmp(command_name, "SUB", 3) == 0 && channel_id != -1) {
+            printf("SUB command entered.\n");
+        } else if (strncmp(command_name, "CHANNELS", 8) == 0) {
+            printf("CHANNELS command entered.\n");
+        } else if (strncmp(command_name, "UNSUB", 5) == 0 && channel_id != -1) {
+            printf("UNSUB command entered.\n");
+        } else if (strncmp(command_name, "NEXT", 4) == 0 && channel_id != -1) {
+            printf("NEXT command with channel ID entered.\n");
+        } else if (strncmp(command_name, "NEXT", 4) == 0 && channel_id == -1) {
+            printf("NEXT command without channel ID entered.\n");
+        } else if (strncmp(command_name, "LIVEFEED", 8) == 0 && channel_id != -1) {
+            printf("LIVEFEED command with channel ID entered.\n");
+        } else if (strncmp(command_name, "LIVEFEED", 8) == 0 && channel_id == -1) {
+            printf("LIVEFEED command without channel ID entered.\n");
+        } else if (strncmp(command_name, "SEND", 4) == 0) {
+            printf("SEND command entered.\n");
+            printf("%s\n", msg);
+        } else if (strncmp(command_name, "BYE", 3) == 0 && channel_id == -1) {
+            printf("BYE command entered.\n");
+        } else {
+            printf("Command entered doesn't match any.\n");
+        }
+
+    }
+
     close(sockfd);
     return 0;
 }
@@ -69,5 +121,15 @@ void startClient(int argc, char ** argv) {
 		perror("connect");
 		exit(1);
 	}
+
+    // Receive the startup message
+    if ((numbytes=recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
+		perror("recv");
+		exit(1);
+	}
+
+	buf[numbytes] = '\0';
+
+	printf("%s", buf);
 
 }
