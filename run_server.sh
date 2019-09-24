@@ -1,2 +1,2 @@
 #!/bin/bash
-./build/server 7777
+./build/server 12345
