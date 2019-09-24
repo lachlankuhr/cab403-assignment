@@ -33,16 +33,25 @@ int main(int argc, char ** argv) {
     // start the server
     startServer(argc, argv);
 
+    int client_id = 1;
+
     // Keeep checking for new connections
     while (keep_running) {
+        
         sin_size = sizeof(struct sockaddr_in);
 		if ((new_fd = accept(sockfd, (struct sockaddr *)&client_addr, &sin_size)) == -1) {
 			continue;
 		}
 		printf("server: got connection from %s\n", inet_ntoa(client_addr.sin_addr));
 
-        // TODO: client IDs
-        if (send(new_fd, "Welcome! Your client ID is 1.\n", 35, 0) == -1) {
+        // Respond to client with welcome and choose client ID
+        char msg[1024] = "Welcome! Your client ID is ";
+        char id[5];
+
+        sprintf(id, "%d\n", client_id++);
+        strcat(msg, id);
+
+        if (send(new_fd, msg, 1024, 0) == -1) {
             perror("send");
         }
     }
@@ -55,7 +64,10 @@ void handleSIGINT(int _) {
     (void)_; // To stop the compiler complaining
     printf("Handling the signal gracefully...\n");
 
-    // TODO: Handle shutdown gracefully (in particular so ports don't stay stuck)
+    // Allowing port and address reuse is dealt with in setup
+
+    // TODO: Handle shutdown gracefully
+    // Inform clients etc
 
     keep_running = 0;
 }
@@ -71,8 +83,9 @@ void setServerPort(int argc, char ** argv) {
 
 void startServer(int argc, char ** argv) {
     // Set the server port
-    setServerPort(argc, argv); 
-    /* generate the socket */
+    setServerPort(argc, argv);
+
+    // Generate socket
 	if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
 		perror("socket");
 		exit(1);
@@ -83,6 +96,7 @@ void startServer(int argc, char ** argv) {
 	server_addr.sin_port = htons(port_number);     /* short, network byte order */
 	server_addr.sin_addr.s_addr = INADDR_ANY;      /* auto-fill with my IP */
 	/* bzero(&(server_addr.sin_zero), 8);*/        /* zero the rest of the struct */
+    // Andrew: Why isn't the above line used?
 
     // Set options allowing address and port reuse
     int reuse = 1;
