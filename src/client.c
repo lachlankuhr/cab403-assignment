@@ -15,8 +15,9 @@ void channels(int* subscribed_channels);
 void unsubscribe(int channel_id, int *subscribed_channels);
 
 #define MAXDATASIZE 1024
-#define COMMANDSIZE 50
 #define NUMCHANNELS 255
+#define COMMANDSIZE 50  // This will need to be considered
+#define MAX_INPUT 3
 
 // Global variables
 int port_number; 
@@ -35,61 +36,86 @@ int main(int argc, char ** argv) {
     char * command_name;
     char * msg;
     int channel_id;
-    int subscribed_channels[NUMCHANNELS]; // array for subscribed channels
+    int subscribed_channels[NUMCHANNELS]; // array for subscribed channels - store client side and client can make requests to server
     for (int i = 0; i < NUMCHANNELS; i++) {
         subscribed_channels[i] = 0; // initialise subscribed channels array to 0
     }
+    char * input[MAX_INPUT];
 
     // Continue to look for new comamnds
-    while (1) {
+    for(;;) {
         // Reset the variables
+        command_name = "";
         channel_id = -1;
+        msg = "";
 
-        // Read the input from the user
+        // Wait for and read user input
+        printf("\nCommand: ");
         fgets(command, COMMANDSIZE, stdin);
-        char * sep = strtok(command," ");
-        if (sep != NULL) {
-            command_name = sep;
+
+        if (strtok(command, "\n") == NULL) { // No command
+            printf("No command entered\n");
+            continue;
+        }
+
+        char* sep = strtok(command, " ");   // Separate command from arguments
+        if (sep != NULL) command_name = sep;
+
+        sep = strtok(NULL, " ");
+        if (sep != NULL) {                           // Get channel ID
+            printf("%s",sep);
+            channel_id = atoi(sep);
+            if (channel_id == 0) {
+                printf("Invalid channel ID\n");      //TODO: Proper validation
+                continue;
+            }
             sep = strtok(NULL, " ");
-        } 
-        if (sep != NULL) {
-            channel_id = atoi(sep);
-            sep = strtok(NULL, "");
-        } else {
-            channel_id = -1; // no channel id associated with this command
-        }
-        if (sep != NULL) {
-            channel_id = atoi(sep);
-            msg = sep;
         }
 
-        printf("Command entered: %s.\n", command_name);
-        printf("Channel ID entered: %i.\n", channel_id);
+        if (sep != NULL) {                  // Get msg (for send only)
+            msg = sep;                      // TODO: Msg format validation
+            sep = strtok(NULL, " ");
+        }
 
-        // Determine what command was entered
-        // Using strncmp instead of strcmp due to the way it is null terminated if no channel number
-        // TODO: Get strcmp working (deal with line ending crap), so e.g. SUBS doesn't work.
-        if (strncmp(command_name, "SUB", 3) == 0 && channel_id != -1) {
+        if (sep != NULL) {                  // Check no format misuse
+            printf("Too many commands entered\n");
+            continue;
+        }
+
+        printf("Command entered: %s\n", command_name);
+        printf("Channel ID entered: %d\n", channel_id);
+        //printf("Msg entered: %s\n", msg);
+
+
+        if (strcmp(command_name, "SUB") == 0 && channel_id  -1) {
             subscribe(channel_id, subscribed_channels);
-        } else if (strncmp(command_name, "CHANNELS", 8) == 0) {
+
+        } else if (strcmp(command_name, "CHANNELS") == 0) {
             channels(subscribed_channels);
-        } else if (strncmp(command_name, "UNSUB", 5) == 0 && channel_id != -1) {
+
+        } else if (strcmp(command_name, "UNSUB") == 0 && channel_id != -1) {
             unsubscribe(channel_id, subscribed_channels);
-        } else if (strncmp(command_name, "NEXT", 4) == 0 && channel_id != -1) {
+
+        } else if (strcmp(command_name, "NEXT") == 0 && channel_id != -1) {
             printf("NEXT command with channel ID entered.\n");
-        } else if (strncmp(command_name, "NEXT", 4) == 0 && channel_id == -1) {
+
+        } else if (strcmp(command_name, "NEXT") == 0 && channel_id == -1) {
             printf("NEXT command without channel ID entered.\n");
-        } else if (strncmp(command_name, "LIVEFEED", 8) == 0 && channel_id != -1) {
+
+        } else if (strcmp(command_name, "LIVEFEED") == 0 && channel_id != -1) {
             printf("LIVEFEED command with channel ID entered.\n");
-        } else if (strncmp(command_name, "LIVEFEED", 8) == 0 && channel_id == -1) {
+
+        } else if (strcmp(command_name, "LIVEFEED") == 0 && channel_id == -1) {
             printf("LIVEFEED command without channel ID entered.\n");
-        } else if (strncmp(command_name, "SEND", 4) == 0) {
+
+        } else if (strcmp(command_name, "SEND") == 0) {
             printf("SEND command entered.\n");
-            printf("%s\n", msg);
-        } else if (strncmp(command_name, "BYE", 3) == 0 && channel_id == -1) {
+
+        } else if (strcmp(command_name, "BYE") == 0 && channel_id == -1) {
             printf("BYE command entered.\n");
+
         } else {
-            printf("Command entered doesn't match any.\n");
+            printf("Command entered is not valid.\n");
         }
 
     }
@@ -153,7 +179,7 @@ void startClient(int argc, char ** argv) {
     // Set the client's port number
     setClientPort(argc, argv);
     
-    if ((he=gethostbyname(argv[1])) == NULL) {  // get the server info
+    if ((he=gethostbyname(argv[1])) == NULL) {  // Get the server info
 		herror("gethostbyname");
 		exit(1);
 	}
@@ -163,10 +189,10 @@ void startClient(int argc, char ** argv) {
 		exit(1);
 	}
 
-	server_addr.sin_family = AF_INET;             /* host byte order */
-	server_addr.sin_port = htons(port_number);    /* short, network byte order */
+	server_addr.sin_family = AF_INET;             // Host byte order */
+	server_addr.sin_port = htons(port_number);    // Short, network byte order */
 	server_addr.sin_addr = *((struct in_addr *)he->h_addr);
-	bzero(&(server_addr.sin_zero), 8);            /* zero the rest of the struct */
+	bzero(&(server_addr.sin_zero), 8);            // Zero the rest of the struct */
 
     if (connect(sockfd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr)) == -1) {
 		perror("connect");
@@ -174,7 +200,7 @@ void startClient(int argc, char ** argv) {
 	}
 
     // Receive the startup message
-    if ((numbytes=recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
+    if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
 		perror("recv");
 		exit(1);
 	}
