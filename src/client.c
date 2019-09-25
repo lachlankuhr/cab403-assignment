@@ -69,17 +69,15 @@ int main(int argc, char ** argv) {
                 printf("Invalid channel ID\n");      //TODO: Proper validation
                 continue;
             }
-            sep = strtok(NULL, " ");
-        }
+            sep = strtok(NULL, ""); // this SHOULD be "" instead of " ". It gets the rest of the message.
+        } 
+        // The message is considered to be the rest of command (including
+        // spaces) after the second parameter. 
+        // Checking for too many parameters should be done later and 
+        // dependent on what the command entered was. 
 
         if (sep != NULL) {                  // Get msg (for send only)
             msg = sep;                      // TODO: Msg format validation
-            sep = strtok(NULL, " ");
-        }
-
-        if (sep != NULL) {                  // Check no format misuse
-            printf("Too many commands entered\n");
-            continue;
         }
 
         printf("Command entered: %s\n", command_name);
@@ -110,6 +108,7 @@ int main(int argc, char ** argv) {
 
         } else if (strcmp(command_name, "SEND") == 0) {
             printf("SEND command entered.\n");
+            printf("%s\n", msg);
 
         } else if (strcmp(command_name, "BYE") == 0 && channel_id == -1) {
             printf("BYE command entered.\n");
