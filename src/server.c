@@ -12,8 +12,11 @@
 #include <unistd.h>
 #include <fcntl.h> 
 #include "server.h"
+#include "data.h"
 
 #define BACKLOG 10     // How many pending connections queue will hold
+#define MAXDATASIZE 1024
+#define NUMCHANNELS 255
 
 // Variable to keep program running until SIGINT occurs
 static volatile sig_atomic_t keep_running = 1;
@@ -25,10 +28,25 @@ struct sockaddr_in server_addr;    // Server address information
 struct sockaddr_in client_addr;    // Client address information
 socklen_t sin_size;
 
+// Receving data
+int numbytes;                      // Number of bytes received from clien
+char buf[MAXDATASIZE];             // Buffer to write to
 
 int main(int argc, char ** argv) {
     // Setup the signal handling for SIGINT signal
     signal(SIGINT, handleSIGINT);
+
+    // Initalise channel listings - one for client connections and one for messages
+    clist_t client_subs;
+    msglist_t messages;
+    if (!clist_init(&client_subs, NUMCHANNELS)) {
+       printf("Failed to initialise channels\n");
+       return EXIT_FAILURE;
+    }
+    if (!msglist_init(&messages, NUMCHANNELS)) {
+       printf("Failed to initialise channels\n");
+       return EXIT_FAILURE;
+    }
 
     // Start the server
     startServer(argc, argv);
@@ -43,6 +61,11 @@ int main(int argc, char ** argv) {
 			continue;
 		}
 		printf("server: got connection from %s\n", inet_ntoa(client_addr.sin_addr));
+        
+        // Set up new client
+        // client_t *new_client;
+        // new_client->id = client_id;
+        // new_client->socket = new_fd;
 
         // Respond to client with welcome and choose client ID
         char msg[1024] = "Welcome! Your client ID is ";
@@ -54,10 +77,67 @@ int main(int argc, char ** argv) {
         if (send(new_fd, msg, 1024, 0) == -1) {
             perror("send");
         }
+
+        // wait for incoming commands (remember we only need to have one client connect right)
+        while (keep_running) {
+            // Receive command
+            if ((numbytes = recv(new_fd, buf, MAXDATASIZE, 0)) == -1) {
+                perror("recv");
+                exit(1);
+            }
+            char* command = buf;
+
+            // Receive channel ID
+            uint16_t received;
+            int channel_id;
+            if ((numbytes = recv(new_fd, &received, sizeof(uint16_t), 0)) == -1) {
+                perror("recv");
+                exit(1);
+            }
+            channel_id = ntohs(received);
+            //int channel_id = 0; // here for sake of consistency
+
+            // handle
+            if (strcmp(command, "SUB\n") == 0 && channel_id != 65535) { // Cant be -1 because of uint16_t
+                printf("SUB command entered with channel %d\n", channel_id);
+
+            } else if (strcmp(command, "CHANNELS\n") == 0) {
+                printf("CHANNELS command entered\n");
+
+            } else if (strcmp(command, "UNSUB\n") == 0 && channel_id != 65535) {
+                printf("UNSUB command entered with channel %d\n", channel_id);
+
+            } else if (strcmp(command, "NEXT\n") == 0 && channel_id != 65535) {
+                printf("NEXT command with channel ID %d entered.\n", channel_id);
+
+            } else if (strcmp(command, "NEXT\n") == 0 && channel_id == 65535) {
+                printf("NEXT command without channel ID entered.\n");
+
+            } else if (strcmp(command, "LIVEFEED\n") == 0 && channel_id != 65535) {
+                printf("LIVEFEED command with channel ID %d entered.\n", channel_id);
+
+            } else if (strcmp(command, "LIVEFEED\n") == 0 && channel_id == 65535) {
+                printf("LIVEFEED command without channel ID entered.\n");
+
+            } else if (strcmp(command, "SEND\n") == 0) {
+                printf("SEND command entered.\n");
+                //printf("%s\n", msg);
+
+            } else if (strcmp(command, "BYE\n") == 0 && channel_id == 65535) {
+                printf("BYE command entered.\n");
+
+            } else {
+                printf("Command entered is not valid.\n");
+            }
+        }
     }
     
     printf("The program was successfully exited.\n");
     return 0;
+}
+
+void subscribeServer() {
+
 }
 
 void handleSIGINT(int _) {
@@ -122,7 +202,7 @@ void startServer(int argc, char ** argv) {
 
     // Set socket to be non-blocking
     fcntl(sockfd, F_SETFL, O_NONBLOCK); // Socket to non-blocking state
-    fcntl(new_fd, F_SETFL, O_NONBLOCK); // Socket to non-blocking state
+    //fcntl(new_fd, F_SETFL, O_NONBLOCK); // Socket to non-blocking state
     
 
 	printf("Server is listening on port: %i.\n", port_number);

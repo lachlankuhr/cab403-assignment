@@ -9,10 +9,7 @@
 #include <sys/socket.h> 
 #include <unistd.h>
 #include "client.h"
-
-void subscribe(int channel_id, int *subscribed_channels);
-void channels(int* subscribed_channels);
-void unsubscribe(int channel_id, int *subscribed_channels);
+#include "data.h"
 
 #define MAXDATASIZE 1024
 #define NUMCHANNELS 255
@@ -85,33 +82,33 @@ int main(int argc, char ** argv) {
         //printf("Msg entered: %s\n", msg);
 
 
-        if (strcmp(command_name, "SUB") == 0 && channel_id  -1) {
-            subscribe(channel_id, subscribed_channels);
+        if (strcmp(command_name, "SUB") == 0 && channel_id != -1) {
+            subscribe(channel_id);
 
         } else if (strcmp(command_name, "CHANNELS") == 0) {
             channels(subscribed_channels);
 
         } else if (strcmp(command_name, "UNSUB") == 0 && channel_id != -1) {
-            unsubscribe(channel_id, subscribed_channels);
+            unsubscribe(channel_id);
 
         } else if (strcmp(command_name, "NEXT") == 0 && channel_id != -1) {
-            printf("NEXT command with channel ID entered.\n");
+            next_channel(channel_id);
 
         } else if (strcmp(command_name, "NEXT") == 0 && channel_id == -1) {
-            printf("NEXT command without channel ID entered.\n");
+            next();
 
         } else if (strcmp(command_name, "LIVEFEED") == 0 && channel_id != -1) {
-            printf("LIVEFEED command with channel ID entered.\n");
+            livefeed_channel(channel_id);
 
         } else if (strcmp(command_name, "LIVEFEED") == 0 && channel_id == -1) {
-            printf("LIVEFEED command without channel ID entered.\n");
+            livefeed();
 
         } else if (strcmp(command_name, "SEND") == 0) {
-            printf("SEND command entered.\n");
+            send_msg(channel_id, msg);
             printf("%s\n", msg);
 
         } else if (strcmp(command_name, "BYE") == 0 && channel_id == -1) {
-            printf("BYE command entered.\n");
+            bye();
 
         } else {
             printf("Command entered is not valid.\n");
@@ -123,46 +120,128 @@ int main(int argc, char ** argv) {
     return 0;
 }
 
-// Subscribe to channel - I think this is okay to just be stored on the client
-void subscribe(int channel_id, int *subscribed_channels) {
-    // check for invalid id
-    if (channel_id < 0 || channel_id > NUMCHANNELS) {
-        printf("Invalid channel: %d.\n", channel_id);
-        return;
+// Subscribe to channel - I think this is okay to just be stored on the client NVM
+void subscribe(int channel_id) {
+    char command[MAXDATASIZE] = "SUB\n";
+
+    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
+        perror("send");
     }
-    // check if already subscribed to channel
-    if (subscribed_channels[channel_id] == 1) {
-        printf("Already subscribed to channel %d.\n", channel_id);
-    } else { // subscribe to channel
-        subscribed_channels[channel_id] = 1;
-        printf("Subscribed to channel %d.\n", channel_id);
+
+    uint16_t channel_num_transfer = htons(channel_id);
+    if (send(sockfd, &channel_num_transfer, sizeof(uint16_t), 0) == -1) {
+        perror("send");
     }
-    return;
+    // TODO - Receive a message back from the server
 }
 
 // For now, just get this printing out the channels
-void channels(int* subscribed_channels) {
-    for (int i = 0; i < NUMCHANNELS; i++) {
-        if (subscribed_channels[i] == 1) {
-            printf("%i\tnum_messages\tread_messages\tunread_messages\n", i); // num_messages, read_messages etc placeholder values
-        }
+void channels() {
+    char command[MAXDATASIZE] = "CHANNELS\n";
+
+    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
+        perror("send");
+    }
+
+    int channel_id = -1;
+    uint16_t channel_num_transfer = htons(channel_id);
+    if (send(sockfd, &channel_num_transfer, sizeof(uint16_t), 0) == -1) {
+        perror("send");
     }
 }
 
-void unsubscribe(int channel_id, int *subscribed_channels) {
-    // check for invalid id
-    if (channel_id < 0 || channel_id > NUMCHANNELS) {
-        printf("Invalid channel: %d.\n", channel_id);
-        return;
+void unsubscribe(int channel_id) {
+    char command[MAXDATASIZE] = "UNSUB\n";
+
+    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
+        perror("send");
     }
-    // check if already subscribed to channel
-    if (subscribed_channels[channel_id] == 0) {
-        printf("Not subscribed to channel %d.\n", channel_id);
-    } else { // unsubscribe to channel
-        subscribed_channels[channel_id] = 0;
-        printf("Unsubscribed from channel %d.\n", channel_id);
+
+    uint16_t channel_num_transfer = htons(channel_id);
+    if (send(sockfd, &channel_num_transfer, sizeof(uint16_t), 0) == -1) {
+        perror("send");
     }
-    return;
+}
+
+void next() {
+    char command[MAXDATASIZE] = "NEXT\n";
+
+    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
+        perror("send");
+    }
+
+    int channel_id = -1;
+    uint16_t channel_num_transfer = htons(channel_id);
+    if (send(sockfd, &channel_num_transfer, sizeof(uint16_t), 0) == -1) {
+        perror("send");
+    }
+}
+
+void next_channel(int channel_id) {
+    char command[MAXDATASIZE] = "NEXT\n";
+
+    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
+        perror("send");
+    }
+
+    uint16_t channel_num_transfer = htons(channel_id);
+    if (send(sockfd, &channel_num_transfer, sizeof(uint16_t), 0) == -1) {
+        perror("send");
+    }
+}
+
+void livefeed() {
+    char command[MAXDATASIZE] = "LIVEFEED\n";
+
+    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
+        perror("send");
+    }
+
+    int channel_id = -1;
+    uint16_t channel_num_transfer = htons(channel_id);
+    if (send(sockfd, &channel_num_transfer, sizeof(uint16_t), 0) == -1) {
+        perror("send");
+    }
+}
+
+void livefeed_channel(int channel_id) {
+    char command[MAXDATASIZE] = "LIVEFEED\n";
+
+    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
+        perror("send");
+    }
+
+    uint16_t channel_num_transfer = htons(channel_id);
+    if (send(sockfd, &channel_num_transfer, sizeof(uint16_t), 0) == -1) {
+        perror("send");
+    }
+}
+
+void send_msg(int channel_id, char* msg) {
+    char command[MAXDATASIZE] = "SEND\n";
+
+    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
+        perror("send");
+    }
+
+    uint16_t channel_num_transfer = htons(channel_id);
+    if (send(sockfd, &channel_num_transfer, sizeof(uint16_t), 0) == -1) {
+        perror("send");
+    }
+}
+
+void bye() {
+    char command[MAXDATASIZE] = "BYE\n";
+
+    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
+        perror("send");
+    }
+
+    int channel_id = -1;
+    uint16_t channel_num_transfer = htons(channel_id);
+    if (send(sockfd, &channel_num_transfer, sizeof(uint16_t), 0) == -1) {
+        perror("send");
+    }
 }
 
 void setClientPort(int argc, char ** argv) {
