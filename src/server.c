@@ -12,7 +12,7 @@
 #include <unistd.h>
 #include <fcntl.h> 
 #include "server.h"
-#include "data.h"
+//#include "data.h"
 
 #define BACKLOG 10     // How many pending connections queue will hold
 #define MAXDATASIZE 1024
@@ -62,10 +62,16 @@ int main(int argc, char ** argv) {
 		}
 		printf("server: got connection from %s\n", inet_ntoa(client_addr.sin_addr));
         
+        // I imagine at this point we will fork, the parent fork will loop back around and
+        // the child fork will carry on processing
+
         // Set up new client
-        // client_t *new_client;
-        // new_client->id = client_id;
-        // new_client->socket = new_fd;
+        client_t *new_client;
+        new_client->id = client_id; // set client id
+        new_client->socket = new_fd; // set socket
+        for (int i = 0; i < NUMCHANNELS; i++) { // set subscribed channels
+            new_client->channels[i] = 0;
+        }
 
         // Respond to client with welcome and choose client ID
         char msg[1024] = "Welcome! Your client ID is ";
@@ -74,14 +80,14 @@ int main(int argc, char ** argv) {
         sprintf(id, "%d\n", client_id++);
         strcat(msg, id);
 
-        if (send(new_fd, msg, 1024, 0) == -1) {
+        if (send(new_client->socket, msg, 1024, 0) == -1) {
             perror("send");
         }
 
         // wait for incoming commands (remember we only need to have one client connect right)
         while (keep_running) {
             // Receive command
-            if ((numbytes = recv(new_fd, buf, MAXDATASIZE, 0)) == -1) {
+            if ((numbytes = recv(new_client->socket, buf, MAXDATASIZE, 0)) == -1) {
                 perror("recv");
                 exit(1);
             }
@@ -90,16 +96,23 @@ int main(int argc, char ** argv) {
             // Receive channel ID
             uint16_t received;
             int channel_id;
-            if ((numbytes = recv(new_fd, &received, sizeof(uint16_t), 0)) == -1) {
+            if ((numbytes = recv(new_client->socket, &received, sizeof(uint16_t), 0)) == -1) {
                 perror("recv");
                 exit(1);
             }
             channel_id = ntohs(received);
+
+            // This one will be for messages - coming back to it
+            // if ((numbytes = recv(new_fd, buf, MAXDATASIZE, 0)) == -1) {
+            //     perror("recv");
+            //     exit(1);
+            // }
             //int channel_id = 0; // here for sake of consistency
 
-            // handle
+            // handle commands - I think we're better off doing it here rather than the client
             if (strcmp(command, "SUB\n") == 0 && channel_id != 65535) { // Cant be -1 because of uint16_t
-                printf("SUB command entered with channel %d\n", channel_id);
+                //printf("SUB command entered with channel %d\n", channel_id);
+                subscribe(channel_id, new_client);
 
             } else if (strcmp(command, "CHANNELS\n") == 0) {
                 printf("CHANNELS command entered\n");
@@ -136,7 +149,47 @@ int main(int argc, char ** argv) {
     return 0;
 }
 
-void subscribeServer() {
+void subscribe(int channel_id, client_t *client) {
+    if (channel_id < 0 || channel_id > 255) {
+        printf("Invalid channel: %d\n", channel_id); // will actually need to send back to client but this will do for now
+    } else if (client->channels[channel_id] == 1) {
+        printf("Already subscribed to channel %d\n", channel_id);
+    } else {
+        printf("Subscribed to channel %d\n", channel_id);
+        client->channels[channel_id] = 1;
+    }
+
+}
+
+void channels(client_t *client) {
+
+}
+
+void unsubscribe(int channel_id, client_t *client) {
+
+}
+
+void next(client_t *client) {
+
+}
+
+void next_channel(int channel_id, client_t *client) {
+
+}
+
+void livefeed(client_t *client) {
+
+}
+
+void livefeed_channel(int channel_id, client_t *client) {
+
+}
+
+void send_msg(int channel_id, char* msg, client_t *client) {
+
+}
+
+void bye(client_t *client) {
 
 }
 

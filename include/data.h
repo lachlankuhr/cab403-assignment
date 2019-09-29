@@ -1,13 +1,16 @@
 #include <time.h>
 #include <stdbool.h>
 
+#define NUMCHANNELS 255
+
 /* messages */
 /* Messages are stored in a hash table */
 /* Each bin in the hash table is a channel */
 typedef struct msg msg_t;
 struct msg {
-    char* string;
-    time_t time_sent;
+    char* string; // String of message being sent
+    int user; // User who sent the message
+    time_t time_sent; // Time the message was sent
 };
 
 /* node of hash table */
@@ -32,6 +35,8 @@ typedef struct client client_t;
 struct client {
     int id; // user's ID
     int socket; // socket user is connecting on
+    int channels[NUMCHANNELS]; // channels a client is connected to
+    // Also an array of pointers so that the client knows where they are up to in the message history of each channel.
 };
 
 /* Node of hash table */
@@ -42,7 +47,7 @@ struct client_node {
     cnode_t *next;
 };
 
-/* channel hash table - records client subscriptions */
+/* channel hash table - records client subscriptions (this may be poor way to do this and it might be better for each client to just store the channels they are subscribed to) */
 typedef struct client_list clist_t;
 struct client_list {
     cnode_t **buckets;

@@ -79,9 +79,11 @@ int main(int argc, char ** argv) {
 
         printf("Command entered: %s\n", command_name);
         printf("Channel ID entered: %d\n", channel_id);
-        //printf("Msg entered: %s\n", msg);
+        printf("Msg entered: %s\n", msg);
+        
 
-
+        // We may be able to compress this to a single send and have the 
+        // server handle all the requests. We can look into this later.
         if (strcmp(command_name, "SUB") == 0 && channel_id != -1) {
             subscribe(channel_id);
 
@@ -120,7 +122,7 @@ int main(int argc, char ** argv) {
     return 0;
 }
 
-// Subscribe to channel - I think this is okay to just be stored on the client NVM
+// Subscribe to channel
 void subscribe(int channel_id) {
     char command[MAXDATASIZE] = "SUB\n";
 
