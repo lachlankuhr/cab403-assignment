@@ -111,14 +111,14 @@ int main(int argc, char ** argv) {
 
             // handle commands - I think we're better off doing it here rather than the client
             if (strcmp(command, "SUB\n") == 0 && channel_id != 65535) { // Cant be -1 because of uint16_t
-                //printf("SUB command entered with channel %d\n", channel_id);
                 subscribe(channel_id, new_client);
 
             } else if (strcmp(command, "CHANNELS\n") == 0) {
                 printf("CHANNELS command entered\n");
 
             } else if (strcmp(command, "UNSUB\n") == 0 && channel_id != 65535) {
-                printf("UNSUB command entered with channel %d\n", channel_id);
+                unsubscribe(channel_id, new_client);
+                //printf("UNSUB command entered with channel %d\n", channel_id);
 
             } else if (strcmp(command, "NEXT\n") == 0 && channel_id != 65535) {
                 printf("NEXT command with channel ID %d entered.\n", channel_id);
@@ -166,7 +166,14 @@ void channels(client_t *client) {
 }
 
 void unsubscribe(int channel_id, client_t *client) {
-
+    if (channel_id < 0 || channel_id > 255) {
+        printf("Invalid channel: %d\n", channel_id); // will actually need to send back to client but this will do for now
+    } else if (client->channels[channel_id] == 0) {
+        printf("Not subscribed to channel %d\n", channel_id);
+    } else {
+        printf("Unsubscribed from channel %d\n", channel_id);
+        client->channels[channel_id] = 0;
+    }
 }
 
 void next(client_t *client) {
