@@ -83,7 +83,7 @@ int main(int argc, char ** argv) {
         sprintf(id, "%d\n", client_id++);
         strcat(msg, id);
 
-        if (send(client->socket, msg, 1024, 0) == -1) {
+        if (send(client->socket, msg, MAXDATASIZE, 0) == -1) {
             perror("send");
         }
 
@@ -117,7 +117,7 @@ int main(int argc, char ** argv) {
                 subscribe(channel_id, client);
 
             } else if (strcmp(command, "CHANNELS\n") == 0) {
-                printf("CHANNELS command entered\n");
+                channels(client);
 
             } else if (strcmp(command, "UNSUB\n") == 0 && channel_id != 65535) {
                 unsubscribe(channel_id, client);
@@ -153,29 +153,42 @@ int main(int argc, char ** argv) {
 }
 
 void subscribe(int channel_id, client_t *client) {
+    char return_msg[MAXDATASIZE];
+
     if (channel_id < 0 || channel_id > 255) {
-        printf("Invalid channel: %d\n", channel_id); // will actually need to send back to client but this will do for now
+        sprintf(return_msg, "Invalid channel: %d\n", channel_id); // will actually need to send back to client but this will do for now
     } else if (client->channels[channel_id] == 1) {
-        printf("Already subscribed to channel %d\n", channel_id);
+        sprintf(return_msg, "Already subscribed to channel %d\n", channel_id);
     } else {
-        printf("Subscribed to channel %d\n", channel_id);
+        sprintf(return_msg, "Subscribed to channel %d\n", channel_id);
         client->channels[channel_id] = 1;
     }
 
+    if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
+        perror("send");
+    }
 }
 
 void channels(client_t *client) {
-
+    for (int i = 0; i < NUMCHANNELS; i++) {
+        if (client->channels[i] == 1){
+            printf("%d\tmsg\treadmsg\tunreadmsg\n", i);
+        }
+    }
 }
 
 void unsubscribe(int channel_id, client_t *client) {
+    char return_msg[MAXDATASIZE];
     if (channel_id < 0 || channel_id > 255) {
-        printf("Invalid channel: %d\n", channel_id); // will actually need to send back to client but this will do for now
+        sprintf(return_msg, "Invalid channel: %d\n", channel_id); // will actually need to send back to client but this will do for now
     } else if (client->channels[channel_id] == 0) {
-        printf("Not subscribed to channel %d\n", channel_id);
+        sprintf(return_msg, "Not subscribed to channel %d\n", channel_id);
     } else {
-        printf("Unsubscribed from channel %d\n", channel_id);
+        sprintf(return_msg, "Unsubscribed from channel %d\n", channel_id);
         client->channels[channel_id] = 0;
+    }
+    if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
+        perror("send");
     }
 }
 

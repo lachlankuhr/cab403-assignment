@@ -122,22 +122,31 @@ int main(int argc, char ** argv) {
     return 0;
 }
 
-// Subscribe to channel
+
 void subscribe(int channel_id) {
     char command[MAXDATASIZE] = "SUB\n";
 
+    // Send command name
     if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
         perror("send");
     }
 
+    // Send channel ID
     uint16_t channel_num_transfer = htons(channel_id);
     if (send(sockfd, &channel_num_transfer, sizeof(uint16_t), 0) == -1) {
         perror("send");
     }
-    // TODO - Receive a message back from the server
+
+    // Receive a message back from the server
+    if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
+        perror("recv");
+        exit(1);
+    }
+    buf[numbytes] = "\0";
+    printf("%s", buf);
 }
 
-// For now, just get this printing out the channels
+
 void channels() {
     char command[MAXDATASIZE] = "CHANNELS\n";
 
@@ -163,6 +172,13 @@ void unsubscribe(int channel_id) {
     if (send(sockfd, &channel_num_transfer, sizeof(uint16_t), 0) == -1) {
         perror("send");
     }
+    // Receive a message back from the server
+    if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
+        perror("recv");
+        exit(1);
+    }
+    buf[numbytes] = "\0";
+    printf("%s", buf);
 }
 
 void next() {
