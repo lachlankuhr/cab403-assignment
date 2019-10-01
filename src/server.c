@@ -66,12 +66,15 @@ int main(int argc, char ** argv) {
         // the child fork will carry on processing
 
         // Set up new client
-        client_t *new_client;
-        new_client->id = client_id; // set client id
-        new_client->socket = new_fd; // set socket
+        client_t new_client;
+        new_client.id = client_id; // set client id
+        new_client.socket = new_fd; // set socket
         for (int i = 0; i < NUMCHANNELS; i++) { // set subscribed channels
-            new_client->channels[i] = 0;
+            new_client.channels[i] = 0;
         }
+        
+        // point client to new client
+        client_t* client = &new_client;
 
         // Respond to client with welcome and choose client ID
         char msg[1024] = "Welcome! Your client ID is ";
@@ -80,14 +83,14 @@ int main(int argc, char ** argv) {
         sprintf(id, "%d\n", client_id++);
         strcat(msg, id);
 
-        if (send(new_client->socket, msg, 1024, 0) == -1) {
+        if (send(client->socket, msg, 1024, 0) == -1) {
             perror("send");
         }
 
         // wait for incoming commands (remember we only need to have one client connect right)
         while (keep_running) {
             // Receive command
-            if ((numbytes = recv(new_client->socket, buf, MAXDATASIZE, 0)) == -1) {
+            if ((numbytes = recv(client->socket, buf, MAXDATASIZE, 0)) == -1) {
                 perror("recv");
                 exit(1);
             }
@@ -96,7 +99,7 @@ int main(int argc, char ** argv) {
             // Receive channel ID
             uint16_t received;
             int channel_id;
-            if ((numbytes = recv(new_client->socket, &received, sizeof(uint16_t), 0)) == -1) {
+            if ((numbytes = recv(client->socket, &received, sizeof(uint16_t), 0)) == -1) {
                 perror("recv");
                 exit(1);
             }
@@ -111,13 +114,13 @@ int main(int argc, char ** argv) {
 
             // handle commands - I think we're better off doing it here rather than the client
             if (strcmp(command, "SUB\n") == 0 && channel_id != 65535) { // Cant be -1 because of uint16_t
-                subscribe(channel_id, new_client);
+                subscribe(channel_id, client);
 
             } else if (strcmp(command, "CHANNELS\n") == 0) {
                 printf("CHANNELS command entered\n");
 
             } else if (strcmp(command, "UNSUB\n") == 0 && channel_id != 65535) {
-                unsubscribe(channel_id, new_client);
+                unsubscribe(channel_id, client);
                 //printf("UNSUB command entered with channel %d\n", channel_id);
 
             } else if (strcmp(command, "NEXT\n") == 0 && channel_id != 65535) {
