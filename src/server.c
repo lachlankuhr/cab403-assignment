@@ -66,7 +66,7 @@ int main(int argc, char ** argv) {
         client_t new_client;
         new_client.id = client_id; // set client id
         new_client.socket = new_fd; // set socket
-        fcntl(new_client.socket, F_SETFL, O_NONBLOCK); // non-blocking
+        //fcntl(new_client.socket, F_SETFL, O_NONBLOCK); // non-blocking
         for (int i = 0; i < NUMCHANNELS; i++) { // set subscribed channels
             new_client.channels[i] = 0;
         }
@@ -78,7 +78,7 @@ int main(int argc, char ** argv) {
         char msg[1024] = "Welcome! Your client ID is ";
         char id[5];
 
-        sprintf(id, "%d\n", client_id++);
+        sprintf(id, "%d.\n", client_id++);
         strcat(msg, id);
 
         if (send(client->socket, msg, MAXDATASIZE, 0) == -1) {
@@ -96,9 +96,8 @@ int main(int argc, char ** argv) {
             message = "";
 
             // Receive command
-            // Non-blocking
             if ((numbytes = recv(client->socket, buf, MAXDATASIZE, 0)) == -1) {
-                continue;
+                perror("recv");
             }
             if (numbytes == 0) {
                 printf("Disconnect detected.\n");
@@ -117,10 +116,16 @@ int main(int argc, char ** argv) {
             sep = strtok(NULL, " ");
             if (sep != NULL) {                           // Get channel ID
                 printf("%s",sep);
-                channel_id = atoi(sep);
-                if (channel_id == 0) {
+                // Reset errno to 0 before call 
+                errno = 0;
+
+                // Call to strtol assigning return to number 
+                char *endptr = NULL;
+                channel_id = strtol(sep, &endptr, 10);
+                
+                if (sep == endptr || errno == EINVAL || (errno != 0 && channel_id == 0) || (errno == 0 && sep && *endptr != 0)) {
                     printf("Invalid channel ID\n");      //TODO: Proper validation
-                    continue;
+                    channel_id = -1;
                 }
                 sep = strtok(NULL, ""); // this SHOULD be "" instead of " ". It gets the rest of the message.
             } 
@@ -187,11 +192,11 @@ void subscribe(int channel_id, client_t *client) {
     char return_msg[MAXDATASIZE];
 
     if (channel_id < 0 || channel_id > 255) {
-        sprintf(return_msg, "Invalid channel: %d\n", channel_id); // will actually need to send back to client but this will do for now
+        sprintf(return_msg, "Invalid channel: %d.\n", channel_id); // will actually need to send back to client but this will do for now
     } else if (client->channels[channel_id] == 1) {
-        sprintf(return_msg, "Already subscribed to channel %d\n", channel_id);
+        sprintf(return_msg, "Already subscribed to channel %d.\n", channel_id);
     } else {
-        sprintf(return_msg, "Subscribed to channel %d\n", channel_id);
+        sprintf(return_msg, "Subscribed to channel %d.\n", channel_id);
         client->channels[channel_id] = 1;
     }
 
