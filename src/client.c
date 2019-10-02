@@ -17,14 +17,14 @@
 #define COMMANDSIZE 50  // This will need to be considered
 #define MAX_INPUT 3
 
-// Variable to keep program running until SIGINT occurs
-static volatile sig_atomic_t keep_running = 1;
-
 // Global variables
 int port_number; 
 int sockfd;  
 struct hostent *he;
 struct sockaddr_in server_addr;
+
+// Process for handling sending and receiving
+pid_t pid;
 
 // Receiving data
 int numbytes;  
@@ -36,7 +36,7 @@ int main(int argc, char ** argv) {
 
     // Start the client
     startClient(argc, argv);
-    
+
     // Abitarily using sizes
     char command[COMMANDSIZE];
     int subscribed_channels[NUMCHANNELS]; // array for subscribed channels - store client side and client can make requests to server
@@ -46,7 +46,7 @@ int main(int argc, char ** argv) {
     char * input[MAX_INPUT];
 
     // Continue to look for new comamnds
-    pid_t pid = fork();
+    pid = fork();
     if (pid == 0) { // child sends messages
         for(;;) {
             // Wait for and read user input
@@ -68,18 +68,19 @@ int main(int argc, char ** argv) {
         }
     }
 
-    close(sockfd);
     return 0;
 }
 
 void handleSIGINT(int _) {
     (void)_; // To stop the compiler complaining
-    printf("Handling the signal gracefully...\n");
+    printf("Handling the signal gracefully for process %d...\n", pid);
 
     // Allowing port and address reuse is dealt with in setup
 
     // TODO: Handle shutdown gracefully
     // Inform clients etc
+
+    close(sockfd);
 
     exit(1);
 }

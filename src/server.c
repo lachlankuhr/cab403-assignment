@@ -18,9 +18,6 @@
 #define MAXDATASIZE 1024
 #define NUMCHANNELS 255
 
-// Variable to keep program running until SIGINT occurs
-static volatile sig_atomic_t keep_running = 1;
-
 // Global variables
 int port_number; 
 int sockfd, new_fd;                // Listen on sock_fd, new connection on new_fd
@@ -54,11 +51,11 @@ int main(int argc, char ** argv) {
     int client_id = 1;
 
     // Keeep checking for new connections
-    while (keep_running) {
+    while (1) {
         
         sin_size = sizeof(struct sockaddr_in);
 		if ((new_fd = accept(sockfd, (struct sockaddr *)&client_addr, &sin_size)) == -1) {
-			continue;
+			perror("accept");
 		}
 		printf("server: got connection from %s\n", inet_ntoa(client_addr.sin_addr));
         
@@ -92,7 +89,7 @@ int main(int argc, char ** argv) {
         char * message;
         int channel_id;
         // Wait for incoming commands (remember we only need to have one client connect right)
-        while (keep_running) {
+        while (1) {
             // Reset the variables
             command_name = "";
             channel_id = -1;
@@ -154,27 +151,27 @@ int main(int argc, char ** argv) {
             } else if (strcmp(command, "CHANNELS") == 0) {
                 channels(client);
 
-            } else if (strcmp(command, "UNSUB") == 0 && channel_id != 65535) {
+            } else if (strcmp(command, "UNSUB") == 0 && channel_id != -1) {
                 unsubscribe(channel_id, client);
                 //printf("UNSUB command entered with channel %d\n", channel_id);
 
-            } else if (strcmp(command, "NEXT") == 0 && channel_id != 65535) {
+            } else if (strcmp(command, "NEXT") == 0 && channel_id != -1) {
                 printf("NEXT command with channel ID %d entered.\n", channel_id);
 
-            } else if (strcmp(command, "NEXT") == 0 && channel_id == 65535) {
+            } else if (strcmp(command, "NEXT") == 0 && channel_id == -1) {
                 printf("NEXT command without channel ID entered.\n");
 
-            } else if (strcmp(command, "LIVEFEED") == 0 && channel_id != 65535) {
+            } else if (strcmp(command, "LIVEFEED") == 0 && channel_id != -1) {
                 printf("LIVEFEED command with channel ID %d entered.\n", channel_id);
 
-            } else if (strcmp(command, "LIVEFEED") == 0 && channel_id == 65535) {
+            } else if (strcmp(command, "LIVEFEED") == 0 && channel_id == -1) {
                 printf("LIVEFEED command without channel ID entered.\n");
 
             } else if (strcmp(command, "SEND") == 0) {
                 printf("SEND command entered.\n");
                 //printf("%s\n", msg);
 
-            } else if (strcmp(command, "BYE") == 0 && channel_id == 65535) {
+            } else if (strcmp(command, "BYE") == 0 && channel_id == -1) {
                 printf("BYE command entered.\n");
 
             } else {
@@ -183,7 +180,6 @@ int main(int argc, char ** argv) {
         }
     }
     
-    printf("The program was successfully exited.\n");
     return 0;
 }
 
@@ -262,8 +258,9 @@ void handleSIGINT(int _) {
 
     // TODO: Handle shutdown gracefully
     // Inform clients etc
-
-    keep_running = 0;
+    close(sockfd);
+    close(new_fd);
+    exit(1);
 }
 
 void setServerPort(int argc, char ** argv) {
@@ -315,7 +312,7 @@ void startServer(int argc, char ** argv) {
 	}
 
     // Set socket to be non-blocking
-    fcntl(sockfd, F_SETFL, O_NONBLOCK); // Socket to non-blocking state
+    //fcntl(sockfd, F_SETFL, O_NONBLOCK); // Socket to non-blocking state
     //fcntl(new_fd, F_SETFL, O_NONBLOCK); // Socket to non-blocking state
     
 
