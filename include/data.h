@@ -37,7 +37,7 @@ typedef struct client client_t;
 struct client {
     int id; // user's ID
     int socket; // socket user is connecting on
-    int channels[NUMCHANNELS]; // channels a client is connected to
+    int channels[NUMCHANNELS]; // boolean to indicate if channel is subscribed to channel at index
     // Also an array of pointers so that the client knows where they are up to in the message history of each channel.
 };
 

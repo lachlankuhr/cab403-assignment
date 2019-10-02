@@ -69,6 +69,7 @@ int main(int argc, char ** argv) {
         client_t new_client;
         new_client.id = client_id; // set client id
         new_client.socket = new_fd; // set socket
+        fcntl(new_client.socket, F_SETFL, O_NONBLOCK); // non-blocking
         for (int i = 0; i < NUMCHANNELS; i++) { // set subscribed channels
             new_client.channels[i] = 0;
         }
@@ -87,23 +88,57 @@ int main(int argc, char ** argv) {
             perror("send");
         }
 
-        // wait for incoming commands (remember we only need to have one client connect right)
+        char * command_name;
+        char * message;
+        int channel_id;
+        // Wait for incoming commands (remember we only need to have one client connect right)
         while (keep_running) {
+            // Reset the variables
+            command_name = "";
+            channel_id = -1;
+            message = "";
+
             // Receive command
+            // Non-blocking
             if ((numbytes = recv(client->socket, buf, MAXDATASIZE, 0)) == -1) {
-                perror("recv");
-                exit(1);
+                continue;
+            }
+            if (numbytes == 0) {
+                printf("Disconnect detected.\n");
+                break;
             }
             char* command = buf;
 
-            // Receive channel ID
-            uint16_t received;
-            int channel_id;
-            if ((numbytes = recv(client->socket, &received, sizeof(uint16_t), 0)) == -1) {
-                perror("recv");
-                exit(1);
+            if (strtok(command, "\n") == NULL) { // No command
+                printf("No command entered\n");
+                continue;
             }
-            channel_id = ntohs(received);
+
+            char* sep = strtok(command, " ");   // Separate command from arguments
+            if (sep != NULL) command_name = sep;
+
+            sep = strtok(NULL, " ");
+            if (sep != NULL) {                           // Get channel ID
+                printf("%s",sep);
+                channel_id = atoi(sep);
+                if (channel_id == 0) {
+                    printf("Invalid channel ID\n");      //TODO: Proper validation
+                    continue;
+                }
+                sep = strtok(NULL, ""); // this SHOULD be "" instead of " ". It gets the rest of the message.
+            } 
+            // The message is considered to be the rest of command (including
+            // spaces) after the second parameter. 
+            // Checking for too many parameters should be done later and 
+            // dependent on what the command entered was. 
+
+            if (sep != NULL) {                  // Get msg (for send only)
+                message = sep;                      // TODO: Msg format validation
+            }
+
+            printf("Command entered: %s\n", command_name);
+            printf("Channel ID entered: %d\n", channel_id);
+            printf("Message entered: %s\n", message);
 
             // This one will be for messages - coming back to it
             // if ((numbytes = recv(new_fd, buf, MAXDATASIZE, 0)) == -1) {
@@ -113,33 +148,33 @@ int main(int argc, char ** argv) {
             //int channel_id = 0; // here for sake of consistency
 
             // handle commands - I think we're better off doing it here rather than the client
-            if (strcmp(command, "SUB\n") == 0 && channel_id != 65535) { // Cant be -1 because of uint16_t
+            if (strcmp(command, "SUB") == 0 && channel_id != 65535) { // Cant be -1 because of uint16_t
                 subscribe(channel_id, client);
 
-            } else if (strcmp(command, "CHANNELS\n") == 0) {
+            } else if (strcmp(command, "CHANNELS") == 0) {
                 channels(client);
 
-            } else if (strcmp(command, "UNSUB\n") == 0 && channel_id != 65535) {
+            } else if (strcmp(command, "UNSUB") == 0 && channel_id != 65535) {
                 unsubscribe(channel_id, client);
                 //printf("UNSUB command entered with channel %d\n", channel_id);
 
-            } else if (strcmp(command, "NEXT\n") == 0 && channel_id != 65535) {
+            } else if (strcmp(command, "NEXT") == 0 && channel_id != 65535) {
                 printf("NEXT command with channel ID %d entered.\n", channel_id);
 
-            } else if (strcmp(command, "NEXT\n") == 0 && channel_id == 65535) {
+            } else if (strcmp(command, "NEXT") == 0 && channel_id == 65535) {
                 printf("NEXT command without channel ID entered.\n");
 
-            } else if (strcmp(command, "LIVEFEED\n") == 0 && channel_id != 65535) {
+            } else if (strcmp(command, "LIVEFEED") == 0 && channel_id != 65535) {
                 printf("LIVEFEED command with channel ID %d entered.\n", channel_id);
 
-            } else if (strcmp(command, "LIVEFEED\n") == 0 && channel_id == 65535) {
+            } else if (strcmp(command, "LIVEFEED") == 0 && channel_id == 65535) {
                 printf("LIVEFEED command without channel ID entered.\n");
 
-            } else if (strcmp(command, "SEND\n") == 0) {
+            } else if (strcmp(command, "SEND") == 0) {
                 printf("SEND command entered.\n");
                 //printf("%s\n", msg);
 
-            } else if (strcmp(command, "BYE\n") == 0 && channel_id == 65535) {
+            } else if (strcmp(command, "BYE") == 0 && channel_id == 65535) {
                 printf("BYE command entered.\n");
 
             } else {
@@ -172,7 +207,10 @@ void subscribe(int channel_id, client_t *client) {
 void channels(client_t *client) {
     for (int i = 0; i < NUMCHANNELS; i++) {
         if (client->channels[i] == 1){
-            printf("%d\tmsg\treadmsg\tunreadmsg\n", i);
+            sprintf(buf, "%d\tmsg\treadmsg\tunreadmsg\n", i);
+            if (send(client->socket, buf, MAXDATASIZE, 0) == -1) {
+                perror("send");
+            }
         }
     }
 }

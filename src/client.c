@@ -1,6 +1,7 @@
 #include <stdio.h> 
 #include <stdlib.h> 
 #include <string.h>
+#include <signal.h> // Signal handling
 #include <errno.h> 
 #include <string.h> 
 #include <netdb.h> 
@@ -16,6 +17,9 @@
 #define COMMANDSIZE 50  // This will need to be considered
 #define MAX_INPUT 3
 
+// Variable to keep program running until SIGINT occurs
+static volatile sig_atomic_t keep_running = 1;
+
 // Global variables
 int port_number; 
 int sockfd;  
@@ -27,12 +31,14 @@ int numbytes;
 char buf[MAXDATASIZE];
 
 int main(int argc, char ** argv) {
+    // Setup the signal handling for SIGINT signal
+    signal(SIGINT, handleSIGINT);
+
+    // Start the client
     startClient(argc, argv);
+    
     // Abitarily using sizes
     char command[COMMANDSIZE];
-    char * command_name;
-    char * msg;
-    int channel_id;
     int subscribed_channels[NUMCHANNELS]; // array for subscribed channels - store client side and client can make requests to server
     for (int i = 0; i < NUMCHANNELS; i++) {
         subscribed_channels[i] = 0; // initialise subscribed channels array to 0
@@ -40,226 +46,42 @@ int main(int argc, char ** argv) {
     char * input[MAX_INPUT];
 
     // Continue to look for new comamnds
-    for(;;) {
-        // Reset the variables
-        command_name = "";
-        channel_id = -1;
-        msg = "";
-
-        // Wait for and read user input
-        printf("\nCommand: ");
-        fgets(command, COMMANDSIZE, stdin);
-
-        if (strtok(command, "\n") == NULL) { // No command
-            printf("No command entered\n");
-            continue;
-        }
-
-        char* sep = strtok(command, " ");   // Separate command from arguments
-        if (sep != NULL) command_name = sep;
-
-        sep = strtok(NULL, " ");
-        if (sep != NULL) {                           // Get channel ID
-            printf("%s",sep);
-            channel_id = atoi(sep);
-            if (channel_id == 0) {
-                printf("Invalid channel ID\n");      //TODO: Proper validation
-                continue;
+    pid_t pid = fork();
+    if (pid == 0) { // child sends messages
+        for(;;) {
+            // Wait for and read user input
+            fgets(command, COMMANDSIZE, stdin);
+            // Send command name
+            if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
+                perror("send");
             }
-            sep = strtok(NULL, ""); // this SHOULD be "" instead of " ". It gets the rest of the message.
-        } 
-        // The message is considered to be the rest of command (including
-        // spaces) after the second parameter. 
-        // Checking for too many parameters should be done later and 
-        // dependent on what the command entered was. 
-
-        if (sep != NULL) {                  // Get msg (for send only)
-            msg = sep;                      // TODO: Msg format validation
         }
+    } else { // parent receives messages 
+        for (;;) {
+            if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
+                perror("recv.");
+            }
 
-        printf("Command entered: %s\n", command_name);
-        printf("Channel ID entered: %d\n", channel_id);
-        printf("Msg entered: %s\n", msg);
-        
+            buf[numbytes] = '\0';
 
-        // We may be able to compress this to a single send and have the 
-        // server handle all the requests. We can look into this later.
-        if (strcmp(command_name, "SUB") == 0 && channel_id != -1) {
-            subscribe(channel_id);
-
-        } else if (strcmp(command_name, "CHANNELS") == 0) {
-            channels(subscribed_channels);
-
-        } else if (strcmp(command_name, "UNSUB") == 0 && channel_id != -1) {
-            unsubscribe(channel_id);
-
-        } else if (strcmp(command_name, "NEXT") == 0 && channel_id != -1) {
-            nextChannel(channel_id);
-
-        } else if (strcmp(command_name, "NEXT") == 0 && channel_id == -1) {
-            next();
-
-        } else if (strcmp(command_name, "LIVEFEED") == 0 && channel_id != -1) {
-            livefeedChannel(channel_id);
-
-        } else if (strcmp(command_name, "LIVEFEED") == 0 && channel_id == -1) {
-            livefeed();
-
-        } else if (strcmp(command_name, "SEND") == 0) {
-            sendMsg(channel_id, msg);
-            printf("%s\n", msg);
-
-        } else if (strcmp(command_name, "BYE") == 0 && channel_id == -1) {
-            bye();
-
-        } else {
-            printf("Command entered is not valid.\n");
+            printf("%s", buf);
         }
-
     }
 
     close(sockfd);
     return 0;
 }
 
+void handleSIGINT(int _) {
+    (void)_; // To stop the compiler complaining
+    printf("Handling the signal gracefully...\n");
 
-void subscribe(int channel_id) {
-    char command[MAXDATASIZE] = "SUB\n";
+    // Allowing port and address reuse is dealt with in setup
 
-    // Send command name
-    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
-        perror("send");
-    }
+    // TODO: Handle shutdown gracefully
+    // Inform clients etc
 
-    // Send channel ID
-    uint16_t channel_num_transfer = htons(channel_id);
-    if (send(sockfd, &channel_num_transfer, sizeof(uint16_t), 0) == -1) {
-        perror("send");
-    }
-
-    // Receive a message back from the server
-    if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
-        perror("recv");
-        exit(1);
-    }
-    buf[numbytes] = "\0";
-    printf("%s", buf);
-}
-
-
-void channels() {
-    char command[MAXDATASIZE] = "CHANNELS\n";
-
-    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
-        perror("send");
-    }
-
-    int channel_id = -1;
-    uint16_t channel_num_transfer = htons(channel_id);
-    if (send(sockfd, &channel_num_transfer, sizeof(uint16_t), 0) == -1) {
-        perror("send");
-    }
-}
-
-void unsubscribe(int channel_id) {
-    char command[MAXDATASIZE] = "UNSUB\n";
-
-    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
-        perror("send");
-    }
-
-    uint16_t channel_num_transfer = htons(channel_id);
-    if (send(sockfd, &channel_num_transfer, sizeof(uint16_t), 0) == -1) {
-        perror("send");
-    }
-    // Receive a message back from the server
-    if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
-        perror("recv");
-        exit(1);
-    }
-    buf[numbytes] = "\0";
-    printf("%s", buf);
-}
-
-void next() {
-    char command[MAXDATASIZE] = "NEXT\n";
-
-    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
-        perror("send");
-    }
-
-    int channel_id = -1;
-    uint16_t channel_num_transfer = htons(channel_id);
-    if (send(sockfd, &channel_num_transfer, sizeof(uint16_t), 0) == -1) {
-        perror("send");
-    }
-}
-
-void nextChannel(int channel_id) {
-    char command[MAXDATASIZE] = "NEXT\n";
-
-    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
-        perror("send");
-    }
-
-    uint16_t channel_num_transfer = htons(channel_id);
-    if (send(sockfd, &channel_num_transfer, sizeof(uint16_t), 0) == -1) {
-        perror("send");
-    }
-}
-
-void livefeed() {
-    char command[MAXDATASIZE] = "LIVEFEED\n";
-
-    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
-        perror("send");
-    }
-
-    int channel_id = -1;
-    uint16_t channel_num_transfer = htons(channel_id);
-    if (send(sockfd, &channel_num_transfer, sizeof(uint16_t), 0) == -1) {
-        perror("send");
-    }
-}
-
-void livefeedChannel(int channel_id) {
-    char command[MAXDATASIZE] = "LIVEFEED\n";
-
-    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
-        perror("send");
-    }
-
-    uint16_t channel_num_transfer = htons(channel_id);
-    if (send(sockfd, &channel_num_transfer, sizeof(uint16_t), 0) == -1) {
-        perror("send");
-    }
-}
-
-void sendMsg(int channel_id, char* msg) {
-    char command[MAXDATASIZE] = "SEND\n";
-
-    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
-        perror("send");
-    }
-
-    uint16_t channel_num_transfer = htons(channel_id);
-    if (send(sockfd, &channel_num_transfer, sizeof(uint16_t), 0) == -1) {
-        perror("send");
-    }
-}
-
-void bye() {
-    char command[MAXDATASIZE] = "BYE\n";
-
-    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
-        perror("send");
-    }
-
-    int channel_id = -1;
-    uint16_t channel_num_transfer = htons(channel_id);
-    if (send(sockfd, &channel_num_transfer, sizeof(uint16_t), 0) == -1) {
-        perror("send");
-    }
+    exit(1);
 }
 
 void setClientPort(int argc, char ** argv) {

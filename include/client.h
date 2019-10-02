@@ -4,29 +4,8 @@ void setClientPort(int argc, char ** argv);
 /* Starts the client on the specified port number */
 void startClient(int argc, char ** argv);
 
-/* Run the subscribe function - add specified channel to client's list of channels */
-void subscribe(int channel_id);
+/* Sets the port to the one supplied otherwise defaults to 12345 */
+void setClientPort(int argc, char ** argv);
 
-/* List the channels and info about those channels */
-void channels();
-
-/* Unsubscribe from a channel */
-void unsubscribe(int channel_id);
-
-/* Get the next message from any of the channels */
-void next();
-
-/* Get the next message from the specified channel */
-void nextChannel(int channel_id);
-
-/* Print a live feed of messages from all channels */
-void livefeed();
-
-/* Print a live feed of the specified channel */
-void livefeedChannel(int channel_id);
-
-/* Send a message to a channel */
-void sendMsg(int channel_id, char* msg);
-
-/* Close the client program */
-void bye();
+/* Handles SIGINT signal to gracefully exit after crtl+c */
+void handleSIGINT();
