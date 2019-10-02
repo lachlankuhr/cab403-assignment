@@ -94,19 +94,19 @@ int main(int argc, char ** argv) {
             unsubscribe(channel_id);
 
         } else if (strcmp(command_name, "NEXT") == 0 && channel_id != -1) {
-            next_channel(channel_id);
+            nextChannel(channel_id);
 
         } else if (strcmp(command_name, "NEXT") == 0 && channel_id == -1) {
             next();
 
         } else if (strcmp(command_name, "LIVEFEED") == 0 && channel_id != -1) {
-            livefeed_channel(channel_id);
+            livefeedChannel(channel_id);
 
         } else if (strcmp(command_name, "LIVEFEED") == 0 && channel_id == -1) {
             livefeed();
 
         } else if (strcmp(command_name, "SEND") == 0) {
-            send_msg(channel_id, msg);
+            sendMsg(channel_id, msg);
             printf("%s\n", msg);
 
         } else if (strcmp(command_name, "BYE") == 0 && channel_id == -1) {
@@ -195,7 +195,7 @@ void next() {
     }
 }
 
-void next_channel(int channel_id) {
+void nextChannel(int channel_id) {
     char command[MAXDATASIZE] = "NEXT\n";
 
     if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
@@ -222,7 +222,7 @@ void livefeed() {
     }
 }
 
-void livefeed_channel(int channel_id) {
+void livefeedChannel(int channel_id) {
     char command[MAXDATASIZE] = "LIVEFEED\n";
 
     if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
@@ -235,7 +235,7 @@ void livefeed_channel(int channel_id) {
     }
 }
 
-void send_msg(int channel_id, char* msg) {
+void sendMsg(int channel_id, char* msg) {
     char command[MAXDATASIZE] = "SEND\n";
 
     if (send(sockfd, command, MAXDATASIZE, 0) == -1) {

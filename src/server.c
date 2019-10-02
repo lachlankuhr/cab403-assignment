@@ -196,7 +196,7 @@ void next(client_t *client) {
 
 }
 
-void next_channel(int channel_id, client_t *client) {
+void nextChannel(int channel_id, client_t *client) {
 
 }
 
@@ -204,11 +204,11 @@ void livefeed(client_t *client) {
 
 }
 
-void livefeed_channel(int channel_id, client_t *client) {
+void livefeedChannel(int channel_id, client_t *client) {
 
 }
 
-void send_msg(int channel_id, char* msg, client_t *client) {
+void sendMsg(int channel_id, char* msg, client_t *client) {
 
 }
 

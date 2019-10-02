@@ -1,6 +1,3 @@
-/* Handles SIGINT signal to gracefully exit after crtl+c */
-void handle_SIGINT();
-
 /* Sets the client port number */
 void setClientPort(int argc, char ** argv);
 
@@ -20,16 +17,16 @@ void unsubscribe(int channel_id);
 void next();
 
 /* Get the next message from the specified channel */
-void next_channel(int channel_id);
+void nextChannel(int channel_id);
 
 /* Print a live feed of messages from all channels */
 void livefeed();
 
 /* Print a live feed of the specified channel */
-void livefeed_channel(int channel_id);
+void livefeedChannel(int channel_id);
 
 /* Send a message to a channel */
-void send_msg(int channel_id, char* msg);
+void sendMsg(int channel_id, char* msg);
 
 /* Close the client program */
 void bye();

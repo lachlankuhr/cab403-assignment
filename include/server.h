@@ -13,16 +13,16 @@ void unsubscribe(int channel_id, client_t *client);
 void next(client_t *client);
 
 /* Show next unread message from CHANNEL_ID if CLIENT is connected to it */
-void next_channel(int channel_id, client_t *client);
+void nextChannel(int channel_id, client_t *client);
 
 /* Show all unread messages in all channels CLIENT is connected to, and continue to show new unread messages */
 void livefeed(client_t *client);
 
 /* Show all unread messages from CHANNEL_ID if CLIENT is connected to it, and continue to show messages as they come through */
-void livefeed_channel(int channel_id, client_t *client);
+void livefeedChannel(int channel_id, client_t *client);
 
 /* Send MSG to CHANNEL from CLIENT */
-void send_msg(int channel_id, char* msg, client_t *client);
+void sendMsg(int channel_id, char* msg, client_t *client);
 
 /* Disconnect CLIENT from the server */
 void bye(client_t *client);
