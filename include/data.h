@@ -3,9 +3,10 @@
 
 #define NUMCHANNELS 255
 
-/* messages */
-/* Messages are stored in a hash table */
-/* Each bin in the hash table is a channel */
+/* messages
+ * Messages are stored in a hash table
+ * Each bin in the hash table is a channel 
+ */
 typedef struct msg msg_t;
 struct msg {
     char* string; // String of message being sent
@@ -28,9 +29,10 @@ struct msg_list {
     size_t size;
 };
 
-/* clients */
-/* Clients are also stored in a hash table, just as messages are */
-/* client object - stores ID and socket for connection */
+/* clients
+ * Clients are also stored in a hash table, just as messages are
+ * client object - stores ID and socket for connection 
+ */
 typedef struct client client_t;
 struct client {
     int id; // user's ID
@@ -47,23 +49,27 @@ struct client_node {
     cnode_t *next;
 };
 
-/* channel hash table - records client subscriptions (this may be poor way to do this and it might be better for each client to just store the channels they are subscribed to) */
+/* channel hash table - records client subscriptions 
+ * (this may be poor way to do this and it might be better 
+ * for each client to just store the channels they are subscribed to) 
+ */
 typedef struct client_list clist_t;
 struct client_list {
     cnode_t **buckets;
     size_t size;
 };
 
-/* Hash table helper functions (basically straight from tut whoops) */
-/* Will move these if necessary, just put them here for now since they're helpers */
-/* for the hash tables */
-
+/* Hash table helper functions (basically straight from tut whoops)
+ * Will move these if necessary, just put them here for now since they're helpers
+ * for the hash tables 
+ */
 // Initialise message hash table
 bool msglist_init(msglist_t *h, size_t n) {
     h->size = n;
     h->buckets = (msgnode_t **)calloc(n, sizeof(msgnode_t *));
     return h->buckets != 0;
 }
+
 // Initalise client hash table
 bool clist_init(clist_t *h, size_t n) {
     h->size = n;
@@ -86,6 +92,7 @@ size_t djb_hash(char *s) {
 size_t msglist_index(msglist_t *h, char *key) {
     return djb_hash(key) % h->size;
 }
+
 // calculate offset for the bucket for key in hash table - client
 size_t clist_index(clist_t *h, char *key) {
     return djb_hash(key) % h->size;
