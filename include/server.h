@@ -1,7 +1,7 @@
 #include <data.h>
 
 /* Subscribe CLIENT to CHANNEL_ID */
-void subscribe(int channel_id, client_t *client, msgnode_t** messages);
+void subscribe(int channel_id, client_t *client);
 
 /* List all channels CLIENT is connect to, and info about those channels */
 void channels(client_t *client);
@@ -13,7 +13,7 @@ void unsubscribe(int channel_id, client_t *client);
 void next(client_t *client);
 
 /* Show next unread message from CHANNEL_ID if CLIENT is connected to it */
-void nextChannel(int channel_id, client_t* client, msgnode_t** messages);
+void nextChannel(int channel_id, client_t* client);
 
 /* Show all unread messages in all channels CLIENT is connected to, and continue to show new unread messages */
 void livefeed(client_t *client);
@@ -22,7 +22,7 @@ void livefeed(client_t *client);
 void livefeedChannel(int channel_id, client_t *client);
 
 /* Send MSG to CHANNEL from CLIENT */
-msgnode_t* sendMsg(int channel_id, msg_t* msg, client_t *client, msgnode_t** msg_list);
+void sendMsg();
 
 /* Disconnect CLIENT from the server */
 void bye(client_t *client);

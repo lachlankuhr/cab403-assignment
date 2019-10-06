@@ -12,11 +12,11 @@
 #include <unistd.h>
 #include <fcntl.h> 
 #include "server.h"
-//#include "data.h"
 
 #define BACKLOG 10     // How many pending connections queue will hold
 #define MAXDATASIZE 1024
 #define NUMCHANNELS 255
+#define MAXMESSAGES 1024
 
 // Global variables
 int port_number; 
@@ -29,6 +29,8 @@ socklen_t sin_size;
 int numbytes;                      // Number of bytes received from clien
 char buf[MAXDATASIZE];             // Buffer to write to
 
+Queue ** messages;
+
 int main(int argc, char ** argv) {
     // Setup the signal handling for SIGINT signal
     signal(SIGINT, handleSIGINT);
@@ -37,9 +39,9 @@ int main(int argc, char ** argv) {
 
 
     // Initalise message lists
-    msgnode_t* messages[NUMCHANNELS];
+    messages = malloc( NUMCHANNELS * sizeof(Queue));
     for (int i = 0; i < NUMCHANNELS; i++) {
-        messages[i] = NULL;
+        messages[i] = ConstructQueue(MAXMESSAGES);
     }
 
     // Start the server
@@ -141,7 +143,7 @@ int main(int argc, char ** argv) {
 
             // handle commands - I think we're better off doing it here rather than the client
             if (strcmp(command, "SUB") == 0 && channel_id != 65535) { // Cant be -1 because of uint16_t
-                subscribe(channel_id, client, messages);
+                subscribe(channel_id, client);
 
             } else if (strcmp(command, "CHANNELS") == 0) {
                 channels(client);
@@ -150,7 +152,7 @@ int main(int argc, char ** argv) {
                 unsubscribe(channel_id, client);
 
             } else if (strcmp(command, "NEXT") == 0 && channel_id != -1) {
-                nextChannel(channel_id, client, messages);
+                nextChannel(channel_id, client);
                 //printf("NEXT command with channel ID %d entered.\n", channel_id);
 
             } else if (strcmp(command, "NEXT") == 0 && channel_id == -1) {
@@ -163,19 +165,25 @@ int main(int argc, char ** argv) {
                 printf("LIVEFEED command without channel ID entered.\n");
 
             } else if (strcmp(command, "SEND") == 0) {
-                // This is done this way due to pointer scope :) in a function means stack variables are destroyed
-                msg_t* msg_struct = (msg_t *)malloc(sizeof(msg_t)); // Construct the message object
-                msg_struct->string = message;
-                msg_struct->user = client->id;
-                msg_struct->time = time(NULL);
-                msgnode_t *newhead = sendMsg(channel_id, msg_struct, client, messages);
-                if (newhead == NULL) {
-                    printf("Memory allocation error");
-                    return EXIT_FAILURE;
+
+                NODE *pN = (NODE*) malloc(sizeof(NODE));
+                printf("%s\n", message);
+                pN->data.message = message;
+                pN->data.user = client->id;
+                pN->data.time = time(NULL);
+
+                Enqueue(messages[channel_id], pN);
+                
+                // Check for invalid channel
+                char return_msg[MAXDATASIZE]; 
+                if (channel_id < 0 || channel_id > 255) {
+                    sprintf(return_msg, "Invalid channel: %d\n", channel_id);
+                    if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
+                        perror("send");
+                    }
                 }
-                messages[channel_id] = newhead;
-                printf("Sent to %d: %s\n", channel_id, messages[channel_id]->msg->string);
-                //free(msg_struct);
+                printf("Sent to %d: %s\n", channel_id, message);
+                
             } else if (strcmp(command, "BYE") == 0 && channel_id == -1) {
                 printf("BYE command entered.\n");
 
@@ -188,7 +196,7 @@ int main(int argc, char ** argv) {
     return 0;
 }
 
-void subscribe(int channel_id, client_t *client, msgnode_t** messages) {
+void subscribe(int channel_id, client_t *client) {
     char return_msg[MAXDATASIZE];
 
     if (channel_id < 0 || channel_id > 255) {
@@ -198,7 +206,6 @@ void subscribe(int channel_id, client_t *client, msgnode_t** messages) {
     } else {
         sprintf(return_msg, "Subscribed to channel %d.\n", channel_id);
         client->channels[channel_id] = 1;
-        client->read_msg[channel_id] = messages[channel_id]; // last message in the channel - want to track read messages
     }
 
     if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
@@ -236,8 +243,26 @@ void next(client_t *client) {
 
 }
 
-void nextChannel(int channel_id, client_t* client, msgnode_t** msg_list) {
-    printf("Next from %d: %s\n", channel_id, msg_list[channel_id]->msg->string); 
+void nextChannel(int channel_id, client_t* client) {
+    char return_msg[MAXDATASIZE];
+    if (channel_id < 0 || channel_id > NUMCHANNELS) {
+        sprintf(return_msg, "Invalid channel: %d\n", channel_id);
+        if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
+            perror("send");
+        }
+    }
+    if (!isEmpty(messages[channel_id])) {
+        NODE *pN = Dequeue(messages[channel_id]);
+        sprintf(return_msg, "%d: %s\n", channel_id, pN->data.message);
+        if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
+            perror("send");
+        }
+    } else {
+        // Send nothing
+        if (send(client->socket, "\n", MAXDATASIZE, 0) == -1) {
+            perror("send");
+        }
+    }
 }
 
 void livefeed(client_t *client) {
@@ -248,20 +273,8 @@ void livefeedChannel(int channel_id, client_t *client) {
 
 }
 
-msgnode_t* sendMsg(int channel_id, msg_t *msg, client_t *client, msgnode_t** msg_list) {
-    // Check for invalid channel
-    char return_msg[MAXDATASIZE];
-    if (channel_id < 0 || channel_id > 255) {
-        sprintf(return_msg, "Invalid channel: %d\n", channel_id);
-        if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
-            perror("send");
-        }
-    }
+void sendMsg() {
 
-    // Construct the node for the linked list
-    msgnode_t *newhead = node_add(msg_list[channel_id], msg);
-
-    return newhead; // return
 }
 
 void bye(client_t *client) {
@@ -335,17 +348,4 @@ void startServer(int argc, char ** argv) {
     
 
 	printf("Server is listening on port: %i.\n", port_number);
-}
-
-msgnode_t * node_add(msgnode_t *head, msg_t *message) {
-    // create new node to add to list
-    msgnode_t *new = (msgnode_t *)malloc(sizeof(msgnode_t));
-    if (new == NULL) {
-        return NULL;
-    }
-
-    // insert new node
-    new->msg = message;
-    new->next = head;
-    return new;
 }
