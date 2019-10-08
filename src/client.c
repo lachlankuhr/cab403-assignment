@@ -25,8 +25,8 @@ int is_livefeed = 0;
 // Receiving data
 int numbytes;  
 char buf[MAXDATASIZE];
-int thread_count;
-
+int next_thread_count;
+int livefeed_thread_count;
 
 int main(int argc, char ** argv) {
     // Setup the signal handling for SIGINT signal
@@ -46,9 +46,12 @@ int main(int argc, char ** argv) {
     char original_command[COMMANDSIZE];
     char * command_name;
     int channel_id;
+    int rc;
     char * message;
-    pthread_t threads[MAX_THREADS];
-    thread_count = 0;
+    pthread_t next_threads[MAX_THREADS];
+    pthread_t livefeed_threads[MAX_THREADS];
+    next_thread_count = 0;
+    livefeed_thread_count = 0;
 
     for(;;) {
         // Wait for and read user input
@@ -61,34 +64,49 @@ int main(int argc, char ** argv) {
         // Reset the variables
         command_name = "";
         channel_id = -1;
-        decode_command(command, command_name, &channel_id);
+        decode_command(command, command_name, &channel_id); // command_name pointless?
 
         if (strcmp(command, "STOP") == 0) {
             // Terminate any running extra threads
-            for (int i = 0; i < MAX_THREADS; i++) {
-                pthread_cancel(threads[i]);
-                thread_count--;
+            for (int i = 0; i < next_thread_count; i++) {
+                printf("Cancelling next thread %d\n", i);
+                if (rc = pthread_cancel(next_threads[i])) {
+                    printf("Failed to cancel thread #%d: %d\n", i, rc);
+                    exit(-1);
+                }
             }
+            next_thread_count = 0;
+
+            for (int i = 0; i < livefeed_thread_count; i++) {
+                printf("Cancelling livefeed thread %d\n", i);
+                if (rc = pthread_cancel(livefeed_threads[i])) {
+                    printf("Failed to cancel thread #%d: %d\n", i, rc);
+                    exit(-1);
+                }
+            }
+            livefeed_thread_count = 0;
 
         } else if (strcmp(command, "BYE") == 0) {
             closeConnection();
 
         } else if (strcmp(command, "NEXT") == 0) {
             // Create thread
-            thread_count++;
+            next_thread_count++;
             long channel = channel_id;
-            int rc = pthread_create(&threads[thread_count], NULL, nextThreadFunc, (void *)channel);
-            if (rc){
+
+            if (rc = pthread_create(&next_threads[next_thread_count-1],  
+                NULL, nextThreadFunc, (void *)channel)) {
                 printf("ERROR; return code from pthread_create() is %d\n", rc);
                 exit(-1);
             }
 
         } else if (strcmp(command, "LIVEFEED") == 0) {
             // Create thread
-            thread_count++;
+            livefeed_thread_count++;
             long channel = channel_id;
-            int rc = pthread_create(&threads[thread_count], NULL, livefeedThreadFunc, (void *)channel);
-            if (rc) {
+
+            if (rc = pthread_create(&livefeed_threads[livefeed_thread_count-1], 
+                NULL, livefeedThreadFunc, (void *)channel)) {
                 printf("ERROR; return code from pthread_create() is %d\n", rc);
                 exit(-1);
             }
@@ -132,7 +150,7 @@ void *nextThreadFunc(void *channel) {
     buf[numbytes] = '\0';
     printf("%s", buf);
     
-    thread_count--;
+    next_thread_count--;
     pthread_exit(NULL);
 }
 
@@ -157,10 +175,14 @@ void *livefeedThreadFunc(void *channel) {
         }
         buf[numbytes] = '\0';
         printf("%s", buf);
+        
+        if (strncmp(buf, "Not", 3) == 0) {
+            break;
+        }
 
         sleep(1);
     }
-    thread_count--;
+    livefeed_thread_count--;
     pthread_exit(NULL);
 }
 

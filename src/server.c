@@ -111,6 +111,7 @@ int main(int argc, char ** argv) {
             }
             char* command = buf;
 
+            // command_name pointless?
             decode_command(client, command, command_name, &channel_id, message);
 
             // Handle commands
