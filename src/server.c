@@ -291,7 +291,7 @@ void nextChannel(int channel_id, client_t* client, msgnode_t** msg_list) {
         if (message_to_read == NULL) {
             return_msg[0] = 0; // empty string
         } else {
-            sprintf(return_msg, "%s\n", message_to_read->string); 
+            sprintf(return_msg, "%d:%s\n", channel_id, message_to_read->string); 
         }
     }
 
