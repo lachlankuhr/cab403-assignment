@@ -35,3 +35,6 @@ void handleSIGINT();
 
 /* Starts the server to listen on the specified port number */
 void startServer(int argc, char ** argv);
+
+/* Read message in specific channel and move the client read head */
+msg_t* read_message(int channel_id, client_t* client, msgnode_t** msg_list);

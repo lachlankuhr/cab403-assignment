@@ -237,7 +237,25 @@ void next(client_t *client) {
 }
 
 void nextChannel(int channel_id, client_t* client, msgnode_t** msg_list) {
-    printf("Next from %d: %s\n", channel_id, msg_list[channel_id]->msg->string); 
+    char return_msg[MAXDATASIZE];
+    msg_t* message_to_read; 
+    if (channel_id < 0 || channel_id > 255) {
+        sprintf(return_msg, "Invalid channel: %d\n", channel_id); // will actually need to send back to client but this will do for now
+    } else if (client->channels[channel_id] == 0) {
+        sprintf(return_msg, "Not subscribed to channel %d\n", channel_id);
+    } else {
+        message_to_read = read_message(channel_id, client, msg_list);
+        if (message_to_read == NULL) {
+            sprintf(return_msg, NULL);
+        } else {
+            sprintf(return_msg, "%s\n", message_to_read->string); 
+        }
+    }
+    if (return_msg != NULL) {
+        if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
+            perror("send");
+        }
+    }
 }
 
 void livefeed(client_t *client) {
@@ -348,4 +366,17 @@ msgnode_t * node_add(msgnode_t *head, msg_t *message) {
     new->msg = message;
     new->next = head;
     return new;
+}
+
+msg_t* read_message(int channel_id, client_t* client, msgnode_t** msg_list) {
+    msgnode_t* last_read = client->read_msg[channel_id]; // current last read message
+    msgnode_t* curr_head = msg_list[channel_id]; // current head, need to keep moving it back
+    if (curr_head == last_read) {
+        return NULL;
+    }
+    while (curr_head->next != last_read) {
+        curr_head = curr_head->next;
+    }
+    client->read_msg[channel_id] = curr_head;
+    return(curr_head->msg);
 }
