@@ -10,7 +10,7 @@ void channels(client_t *client);
 void unsubscribe(int channel_id, client_t *client);
 
 /* Show next unread message from any channel CLIENT is connected to */
-void next(client_t *client);
+void next(client_t *client, msgnode_t** msg_list);
 
 /* Show next unread message from CHANNEL_ID if CLIENT is connected to it */
 void nextChannel(int channel_id, client_t* client, msgnode_t** messages);
@@ -38,3 +38,6 @@ void startServer(int argc, char ** argv);
 
 /* Read message in specific channel and move the client read head */
 msg_t* read_message(int channel_id, client_t* client, msgnode_t** msg_list);
+
+/* Just retrieve next message in specific channel but do NOT move client read head */
+msg_t* get_next_message(int channel_id, client_t* client, msgnode_t** msg_list);

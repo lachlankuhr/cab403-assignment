@@ -154,6 +154,7 @@ int main(int argc, char ** argv) {
                 //printf("NEXT command with channel ID %d entered.\n", channel_id);
 
             } else if (strcmp(command, "NEXT") == 0 && channel_id == -1) {
+                next(client, messages);
                 printf("NEXT command without channel ID entered.\n");
 
             } else if (strcmp(command, "LIVEFEED") == 0 && channel_id != -1) {
@@ -232,8 +233,34 @@ void unsubscribe(int channel_id, client_t *client) {
     }
 }
 
-void next(client_t *client) {
-
+void next(client_t *client, msgnode_t** msg_list) {
+    char return_msg[MAXDATASIZE];
+    time_t min_time = time(NULL);
+    int next_channel;
+    msg_t * next_msg = NULL;
+    for (int channel_id = 0; channel_id <  NUMCHANNELS; channel_id++) {
+        if (client->channels[channel_id] == 1) {
+            msg_t * message = get_next_message(channel_id, client, msg_list); // just get and not move head forward
+            if (message != NULL) { // could use short circuiting
+                if (message->time < min_time) {
+                    min_time = message->time;
+                    next_msg = message;
+                    next_channel = channel_id;
+                }
+            }
+        }
+    }
+    if (next_msg == NULL) {
+        sprintf(return_msg, NULL);
+    } else {
+        read_message(next_channel, client, msg_list); // move head foward
+        sprintf(return_msg, "%s\n", next_msg->string); 
+    }
+    if (return_msg != NULL) {
+        if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
+            perror("send");
+        }
+    }
 }
 
 void nextChannel(int channel_id, client_t* client, msgnode_t** msg_list) {
@@ -244,7 +271,7 @@ void nextChannel(int channel_id, client_t* client, msgnode_t** msg_list) {
     } else if (client->channels[channel_id] == 0) {
         sprintf(return_msg, "Not subscribed to channel %d\n", channel_id);
     } else {
-        message_to_read = read_message(channel_id, client, msg_list);
+        message_to_read = get_next_message(channel_id, client, msg_list);
         if (message_to_read == NULL) {
             sprintf(return_msg, NULL);
         } else {
@@ -378,5 +405,17 @@ msg_t* read_message(int channel_id, client_t* client, msgnode_t** msg_list) {
         curr_head = curr_head->next;
     }
     client->read_msg[channel_id] = curr_head;
+    return(curr_head->msg);
+}
+
+msg_t* get_next_message(int channel_id, client_t* client, msgnode_t** msg_list) {
+    msgnode_t* last_read = client->read_msg[channel_id]; // current last read message
+    msgnode_t* curr_head = msg_list[channel_id]; // current head, need to keep moving it back
+    if (curr_head == last_read) {
+        return NULL;
+    }
+    while (curr_head->next != last_read) {
+        curr_head = curr_head->next;
+    }
     return(curr_head->msg);
 }
