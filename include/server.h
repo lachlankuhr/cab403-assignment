@@ -25,7 +25,7 @@ void livefeedChannel(int channel_id, client_t *client);
 msgnode_t* sendMsg(int channel_id, msg_t* msg, client_t *client, msgnode_t** msg_list);
 
 /* Disconnect CLIENT from the server */
-void bye(client_t *client);
+int bye(client_t *client);
 
 /* Sets the port to the one supplied otherwise defaults to 12345 */
 int setServerPort(int argc, char ** argv);
