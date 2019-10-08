@@ -146,6 +146,10 @@ int main(int argc, char ** argv) {
                 }
                 messages[channel_id] = newhead;
                 printf("Sent to %d: %s\n", channel_id, messages[channel_id]->msg->string);
+                // Send back nothing because otherwise its blocking
+                if (send(client->socket, "", MAXDATASIZE, 0) == -1) {
+                    perror("send");
+                }
 
             } else if (strcmp(command, "BYE") == 0 && channel_id == -1) {
                 run = bye(client);
@@ -322,6 +326,7 @@ msgnode_t* sendMsg(int channel_id, msg_t *msg, client_t *client, msgnode_t** msg
 }
 
 int bye(client_t *client) {
+    printf("Client disconnected.\n");
     close(client->socket); // close socket on server side
     return 0; // required to stop server signal
 }
@@ -333,8 +338,6 @@ void handleSIGINT(int _) {
     // Allowing port and address reuse is dealt with in setup
 
     // TODO: Handle shutdown gracefully
-    // Inform clients etc - clients will need to be disconnected.
-    // Will require something on the client side to accept a message and do something with it.
 
     // Close threads (in this case processes I think)
     // This will be implemented once everything else has been.

@@ -20,6 +20,8 @@
 int sockfd;
 struct hostent *he;
 struct sockaddr_in server_addr;
+int is_livefeed = 0;
+
 // Receiving data
 int numbytes;  
 char buf[MAXDATASIZE];
@@ -68,6 +70,8 @@ int main(int argc, char ** argv) {
         // Spawn the threads here
         if (strcmp(command, "STOP") == 0) {
             // terminate the livenext and next threads
+        } else if (strcmp(command, "BYE") == 0) {
+            closeConnection();
         } else if (strcmp(command, "NEXT") == 0 && channel_id != -1) {
             nextChannel(original_command);
             // create thread
@@ -189,18 +193,12 @@ void decode_command(char* command, char * command_name, int * channel_id) {
 
 void handleSIGINT(int _) {
     (void)_; // To stop the compiler complaining
-    printf("Handling the signal gracefully for thread %d...\n", 1); //TODO
-
-    // Allowing port and address reuse is dealt with in setup
-
-    // TODO: Handle shutdown gracefully
-    // Inform clients etc
-
-    close(sockfd);
-
-
-    exit(1);
-
+    if (!is_livefeed) {
+        printf("Handling the signal gracefully for thread %d...\n", 1); //TODO
+        closeConnection();
+    } else {
+        // Exit livefeed as necessary
+    }
 }
 
 int setClientPort(int argc, char ** argv) {
@@ -246,4 +244,24 @@ void startClient(int argc, char ** argv) {
 
 	printf("%s", buf);
 
+}
+
+void closeConnection() {
+    printf("Closing client...\n");
+    char command[MAXDATASIZE];
+    sprintf(command, "BYE");
+    // Inform server of exit command so it can implement BYE procedure
+    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
+        perror("send");
+        exit(1);
+    }
+    // clear dynamic memory - there is none
+
+    // close threads - when implemented
+
+    // Close socket
+    close(sockfd);
+
+    // exit
+    exit(1);
 }

@@ -18,3 +18,6 @@ void livefeed();
 void decode_command(char* command, char * command_name, int * channel_id);
 
 void livefeedChannel(int channel_id);
+
+/* Deal with BYE or SIGINT */
+void closeConnection();
