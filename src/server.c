@@ -14,7 +14,7 @@
 #include "server.h"
 
 #define BACKLOG 10     // How many pending connections queue will hold
-#define MAXDATASIZE 1024
+#define MAXDATASIZE 30000
 #define NUMCHANNELS 255
 
 // Global variables
@@ -102,7 +102,7 @@ int main(int argc, char ** argv) {
 
             // Receive command
             if ((numbytes = recv(client->socket, buf, MAXDATASIZE, 0)) == -1) {
-                perror("recv");
+                    perror("recv");
             }
             if (numbytes == 0) {
                 printf("Disconnect detected.\n");
@@ -110,46 +110,14 @@ int main(int argc, char ** argv) {
             }
             char* command = buf;
 
-            if (strtok(command, "\n") == NULL) { // No command
-                if (send(client->socket, "No command entered\n", MAXDATASIZE, 0) == -1) {
-                    perror("send");
-                }
-                continue;
-            }
-
-            char* sep = strtok(command, " ");   // Separate command from arguments
-            if (sep != NULL) command_name = sep;
-
-            sep = strtok(NULL, " ");
-            if (sep != NULL) {  // Get channel ID
-                // Reset errno to 0 before call 
-                errno = 0;
-
-                // Call to strtol assigning return to number 
-                char *endptr = NULL;
-                channel_id = strtol(sep, &endptr, 10);
-                
-                if (sep == endptr || errno == EINVAL || (errno != 0 && channel_id == 0) || (errno == 0 && sep && *endptr != 0)) {
-                    if (send(client->socket, "Invalid channel ID\n", MAXDATASIZE, 0) == -1) {
-                        perror("send");
-                    }
-                    channel_id = -1;
-                }
-                sep = strtok(NULL, ""); // this SHOULD be "" instead of " ". It gets the rest of the message.
-            } 
-
-            if (sep != NULL) { // Get msg (for send only)
-                strcpy(message, sep);
-            } else {
-                strcpy(message, "");
-            }
+            decode_command(client, command, command_name, &channel_id, message);
 
             // Handle commands
             if (strcmp(command, "SUB") == 0 && channel_id != 65535) { // Cant be -1 because of uint16_t
                 subscribe(channel_id, client, messages);
 
             } else if (strcmp(command, "CHANNELS") == 0) {
-                channels(client, messages, messages_counts);
+                channels (client, messages, messages_counts);
 
             } else if (strcmp(command, "UNSUB") == 0 && channel_id != -1) {
                 unsubscribe(channel_id, client);
@@ -160,13 +128,6 @@ int main(int argc, char ** argv) {
 
             } else if (strcmp(command, "NEXT") == 0 && channel_id == -1) {
                 next(client, messages);
-                printf("NEXT command without channel ID entered.\n");
-
-            } else if (strcmp(command, "LIVEFEED") == 0 && channel_id != -1) {
-                printf("LIVEFEED command with channel ID %d entered.\n", channel_id);
-
-            } else if (strcmp(command, "LIVEFEED") == 0 && channel_id == -1) {
-                printf("LIVEFEED command without channel ID entered.\n");
 
             } else if (strcmp(command, "SEND") == 0 && channel_id != -1) {
                 // Increase 
@@ -184,7 +145,10 @@ int main(int argc, char ** argv) {
                 }
                 messages[channel_id] = newhead;
                 printf("Sent to %d: %s\n", channel_id, messages[channel_id]->msg->string);
-                //free(msg_struct);
+                // Send back nothing because the 
+                if (send(client->socket, "", MAXDATASIZE, 0) == -1) {
+                    perror("send");
+                }
 
             } else if (strcmp(command, "BYE") == 0 && channel_id == -1) {
                 printf("BYE command entered.\n");
@@ -203,9 +167,43 @@ int main(int argc, char ** argv) {
     return 0;
 }
 
+void decode_command(client_t * client, char * command, char * command_name, int * channel_id, char * message) {
+    if (strtok(command, "\n") == NULL) { // No command
+        if (send(client->socket, "No command entered\n", MAXDATASIZE, 0) == -1) {
+            perror("send");
+        }
+        return;
+    }
+
+    char* sep = strtok(command, " ");   // Separate command from arguments
+    if (sep != NULL) command_name = sep;
+
+    sep = strtok(NULL, " ");
+    if (sep != NULL) {  // Get channel ID
+        // Reset errno to 0 before call 
+        errno = 0;
+
+        // Call to strtol assigning return to number 
+        char *endptr = NULL;
+        *channel_id = strtol(sep, &endptr, 10);
+        
+        if (sep == endptr || errno == EINVAL || (errno != 0 && *channel_id == 0) || (errno == 0 && sep && *endptr != 0)) {
+            if (send(client->socket, "Invalid channel ID\n", MAXDATASIZE, 0) == -1) {
+                perror("send");
+            }
+            *channel_id = -1;
+        }
+        sep = strtok(NULL, ""); // this SHOULD be "" instead of " ". It gets the rest of the message.
+    } 
+    if (sep != NULL) { // Get msg (for send only)
+        strcpy(message, sep);
+    } else {
+        strcpy(message, "");
+    }
+}
+
 void subscribe(int channel_id, client_t *client, msgnode_t** messages) {
     char return_msg[MAXDATASIZE];
-
     if (channel_id < 0 || channel_id > 255) {
         sprintf(return_msg, "Invalid channel: %d.\n", channel_id); // will actually need to send back to client but this will do for now
     } else if (client->channels[channel_id].subscribed == 1) {
@@ -222,14 +220,15 @@ void subscribe(int channel_id, client_t *client, msgnode_t** messages) {
 }
 
 void channels(client_t *client, msgnode_t** msg_list, int * messages_counts) {
+    char return_msg[MAXDATASIZE];
     for (int channel_id = 0; channel_id < NUMCHANNELS; channel_id++) {
         if (client->channels[channel_id].subscribed == 1) {
-
             sprintf(buf, "%d\t%d\t%d\t%d\n", channel_id, messages_counts[channel_id], client->channels[channel_id].read, get_number_unread_messages(channel_id, client, msg_list));
-            if (send(client->socket, buf, MAXDATASIZE, 0) == -1) {
-                perror("send");
-            }
+            strcat(return_msg, buf);
         }
+    }
+    if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
+        perror("send");
     }
 }
 
@@ -270,15 +269,13 @@ void next(client_t *client, msgnode_t** msg_list) {
     if (client_subscribed_to_any_channel == 0) {
         sprintf(return_msg, "Not subscribed to any channels.\n");
     } else if (next_msg == NULL) {
-        sprintf(return_msg, " ");
+        return_msg[0] = 0; // empty string
     } else {
         read_message(next_channel, client, msg_list); // move head foward
-        sprintf(return_msg, "%d:%s\n", next_channel, next_msg->string); // TODO: insert channel ID prefix as in SPEC
+        sprintf(return_msg, "%d: %s\n", next_channel, next_msg->string); // TODO: insert channel ID prefix as in SPEC
     }
-    if (return_msg != " ") {
-        if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
-            perror("send");
-        }
+    if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
+        perror("send");
     }
 }
 
@@ -292,16 +289,15 @@ void nextChannel(int channel_id, client_t* client, msgnode_t** msg_list) {
     } else {
         message_to_read = read_message(channel_id, client, msg_list);
         if (message_to_read == NULL) {
-            sprintf(return_msg, " ");
+            return_msg[0] = 0; // empty string
         } else {
             sprintf(return_msg, "%s\n", message_to_read->string); 
         }
     }
-    if (return_msg != " ") {
-        if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
-            perror("send");
-        }
-    }
+
+    if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
+        perror("send");
+    } 
 }
 
 void livefeed(client_t *client) {
