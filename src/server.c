@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#include <signal.h> // Signal handling
+#include <signal.h>
 #include <arpa/inet.h>
 #include <errno.h> 
 #include <string.h> 
@@ -12,14 +12,12 @@
 #include <unistd.h>
 #include <fcntl.h> 
 #include "server.h"
-//#include "data.h"
 
 #define BACKLOG 10     // How many pending connections queue will hold
 #define MAXDATASIZE 1024
 #define NUMCHANNELS 255
 
 // Global variables
-int port_number; 
 int sockfd, new_fd;                // Listen on sock_fd, new connection on new_fd
 struct sockaddr_in server_addr;    // Server address information
 struct sockaddr_in client_addr;    // Client address information
@@ -32,9 +30,6 @@ char buf[MAXDATASIZE];             // Buffer to write to
 int main(int argc, char ** argv) {
     // Setup the signal handling for SIGINT signal
     signal(SIGINT, handleSIGINT);
-
-    // Initialise a message variable
-
 
     // Initalise message lists
     msgnode_t* messages[NUMCHANNELS];
@@ -62,14 +57,23 @@ int main(int argc, char ** argv) {
 		}
 		printf("server: got connection from %s\n", inet_ntoa(client_addr.sin_addr));
         
-        // I imagine at this point we will fork, the parent fork will loop back around and
-        // the child fork will carry on processing
+        /*
+        pid_t pid;
+        pid = fork();
+        if (pid == 0) { // Child carries on processing
+            for(;;) {
+
+            }
+        } else { // parent loops back around 
+            for (;;) {
+
+            }
+        }*/
 
         // Set up new client
         client_t new_client;
         new_client.id = client_id; // set client id
         new_client.socket = new_fd; // set socket
-        //fcntl(new_client.socket, F_SETFL, O_NONBLOCK); // non-blocking
         for (int i = 0; i < NUMCHANNELS; i++) { // set subscribed channels
             new_client.channels[i].subscribed = 0;
         }
@@ -126,14 +130,16 @@ int main(int argc, char ** argv) {
                 channel_id = strtol(sep, &endptr, 10);
                 
                 if (sep == endptr || errno == EINVAL || (errno != 0 && channel_id == 0) || (errno == 0 && sep && *endptr != 0)) {
-                    printf("Invalid channel ID\n");      //TODO: Proper validation
+                    if (send(client->socket, "Invalid channel ID\n", MAXDATASIZE, 0) == -1) {
+                        perror("send");
+                    }
                     channel_id = -1;
                 }
                 sep = strtok(NULL, ""); // this SHOULD be "" instead of " ". It gets the rest of the message.
             } 
 
             if (sep != NULL) { // Get msg (for send only)
-                strcpy(message, sep);           // TODO: Msg format validation
+                strcpy(message, sep);
             } else {
                 strcpy(message, "");
             }
@@ -335,18 +341,17 @@ void handleSIGINT(int _) {
     exit(1);
 }
 
-void setServerPort(int argc, char ** argv) {
+int setServerPort(int argc, char ** argv) {
+    int port_number = 12345;
     if (argc > 1) {
-        port_number = atoi(argv[1]);
-    } else {
-        port_number = 12345;
+        int port_number = atoi(argv[1]);
     }
-    printf("The port number was set to: %i.\n", port_number);
+    return port_number;
 }   
 
 void startServer(int argc, char ** argv) {
     // Set the server port
-    setServerPort(argc, argv);
+    int port_number = setServerPort(argc, argv);
 
     // Generate socket
 	if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
@@ -382,12 +387,7 @@ void startServer(int argc, char ** argv) {
 		perror("listen");
 		exit(0);
 	}
-
-    // Set socket to be non-blocking
-    //fcntl(sockfd, F_SETFL, O_NONBLOCK); // Socket to non-blocking state
-    //fcntl(new_fd, F_SETFL, O_NONBLOCK); // Socket to non-blocking state
     
-
 	printf("Server is listening on port: %i.\n", port_number);
 }
 

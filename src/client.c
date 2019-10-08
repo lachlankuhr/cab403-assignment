@@ -1,7 +1,7 @@
 #include <stdio.h> 
 #include <stdlib.h> 
 #include <string.h>
-#include <signal.h> // Signal handling
+#include <signal.h>
 #include <errno.h> 
 #include <string.h> 
 #include <netdb.h> 
@@ -19,6 +19,8 @@
 
 // Global variables
 int sockfd;
+struct hostent *he;
+struct sockaddr_in server_addr;
 // Receiving data
 int numbytes;  
 char buf[MAXDATASIZE];
@@ -91,8 +93,6 @@ int setClientPort(int argc, char ** argv) {
 void startClient(int argc, char ** argv) {
     // Set the client's port number
     int port_number = setClientPort(argc, argv);
-    struct hostent *he;
-    struct sockaddr_in server_addr;
 
     if ((he=gethostbyname(argv[1])) == NULL) {  // Get the server info
 		herror("gethostbyname");
