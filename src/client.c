@@ -2,13 +2,11 @@
 #include <stdlib.h> 
 #include <string.h>
 #include <signal.h>
-#include <errno.h> 
-#include <string.h> 
 #include <netdb.h> 
-#include <sys/types.h> 
 #include <netinet/in.h> 
 #include <sys/socket.h> 
 #include <unistd.h>
+#include <pthread.h>
 #include "client.h"
 #include "data.h"
 
@@ -40,7 +38,17 @@ int main(int argc, char ** argv) {
     }
     char * input[MAX_INPUT];
 
-    // Continue to look for new comamnds
+
+    //pthread_t threads[NUM_THREADS];
+    //printf("In main: creating thread %ld\n", t);
+    //rc = pthread_create(&threads[t], NULL, PrintHello, (void *)t);
+    //if (rc){
+    //    printf("ERROR; return code from pthread_create() is %d\n", rc);
+    //    exit(-1);
+    //}
+
+
+    // Child sends new messages, parent receives and displays messages
     pid_t pid;
     pid = fork();
     if (pid == 0) { // child sends messages
@@ -64,6 +72,7 @@ int main(int argc, char ** argv) {
         }
     }
 
+    pthread_exit(NULL);
     return 0;
 }
 

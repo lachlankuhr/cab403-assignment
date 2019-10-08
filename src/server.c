@@ -185,8 +185,12 @@ int main(int argc, char ** argv) {
                 messages[channel_id] = newhead;
                 printf("Sent to %d: %s\n", channel_id, messages[channel_id]->msg->string);
                 //free(msg_struct);
+
             } else if (strcmp(command, "BYE") == 0 && channel_id == -1) {
                 printf("BYE command entered.\n");
+
+            } else if (strcmp(command, "STOP") == 0) {
+                // Terminate all outstanding NEXT and LIVEFEED commands
 
             } else {
                 if (send(client->socket, "Invalid command\n", MAXDATASIZE, 0) == -1) {
@@ -269,7 +273,7 @@ void next(client_t *client, msgnode_t** msg_list) {
         sprintf(return_msg, " ");
     } else {
         read_message(next_channel, client, msg_list); // move head foward
-        sprintf(return_msg, "%s\n", next_msg->string); 
+        sprintf(return_msg, "%d:%s\n", next_channel, next_msg->string); // TODO: insert channel ID prefix as in SPEC
     }
     if (return_msg != " ") {
         if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {

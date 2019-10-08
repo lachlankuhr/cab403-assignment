@@ -9,7 +9,7 @@ server:
 # Target to compile client
 client: 
 	mkdir -p build
-	gcc -I include src/client.c -o build/client
+	gcc -I include src/client.c -o build/client -lpthread
 
 clean: 
 	rm -rf build/*
