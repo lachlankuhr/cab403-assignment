@@ -63,13 +63,13 @@ int main(int argc, char ** argv) {
 
         if (strcmp(command, "STOP") == 0) {
             // Terminate any running extra threads
-            for (int i = 0; i < thread_count; i++) {
+            for (int i = 0; i < MAX_THREADS; i++) {
                 pthread_cancel(threads[i]);
                 thread_count--;
             }
 
         } else if (strcmp(command, "NEXT") == 0) {
-            // Create thread (remember channel ID != -1 and == -1)
+            // Create thread
             thread_count++;
             long channel = channel_id;
             int rc = pthread_create(&threads[thread_count], NULL, nextThreadFunc, (void *)channel);
@@ -79,10 +79,10 @@ int main(int argc, char ** argv) {
             }
 
         } else if (strcmp(command, "LIVEFEED") == 0) {
-            // Create thread (remember channel ID != -1 and == -1)
+            // Create thread
             thread_count++;
             long channel = channel_id;
-            int rc = pthread_create(&threads[thread_count], NULL, nextThreadFunc, (void *)channel);
+            int rc = pthread_create(&threads[thread_count], NULL, livefeedThreadFunc, (void *)channel);
             if (rc) {
                 printf("ERROR; return code from pthread_create() is %d\n", rc);
                 exit(-1);
@@ -128,14 +128,19 @@ void *nextThreadFunc(void *channel) {
     printf("%s", buf);
     
     thread_count--;
-    pthread_exit(NULL);   
+    pthread_exit(NULL);
 }
 
-void *livefeedThreadFunc(void *channel) { //TODO poll at an interval
+void *livefeedThreadFunc(void *channel) {
     char command[100];
     long channel_id = (long)channel;
-    sprintf(command, "NEXT %ld", channel_id);
 
+    if (channel_id == -1) {
+        sprintf(command, "NEXT");
+    } else if (channel_id != -1) {
+        sprintf(command, "NEXT %d", channel_id);
+    }
+    
     while (1) {
         // Send the command
         if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
@@ -147,6 +152,8 @@ void *livefeedThreadFunc(void *channel) { //TODO poll at an interval
         }
         buf[numbytes] = '\0';
         printf("%s", buf);
+
+        sleep(5);
     }
     thread_count--;
     pthread_exit(NULL);
