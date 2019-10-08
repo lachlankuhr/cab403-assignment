@@ -6,11 +6,12 @@
 #include <netinet/in.h> 
 #include <sys/socket.h> 
 #include <unistd.h>
+#include <errno.h> 
 #include <pthread.h>
 #include "client.h"
 #include "data.h"
 
-#define MAXDATASIZE 1024
+#define MAXDATASIZE 30000
 #define NUMCHANNELS 255
 #define COMMANDSIZE 50  // This will need to be considered
 #define MAX_INPUT 3
@@ -30,8 +31,6 @@ int main(int argc, char ** argv) {
     // Start the client
     startClient(argc, argv);
 
-    // Abitarily using sizes
-    char command[COMMANDSIZE];
     int subscribed_channels[NUMCHANNELS]; // array for subscribed channels - store client side and client can make requests to server
     for (int i = 0; i < NUMCHANNELS; i++) {
         subscribed_channels[i] = 0; // initialise subscribed channels array to 0
@@ -47,25 +46,50 @@ int main(int argc, char ** argv) {
     //    exit(-1);
     //}
 
+    // Command components
+    char command[COMMANDSIZE];
+    char original_command[COMMANDSIZE];
+    char * command_name;
+    int channel_id;
+    char * message;
+    for(;;) {
+        // Wait for and read user input
+        fgets(command, COMMANDSIZE, stdin);
 
-    // Child sends new messages, parent receives and displays messages
-    pid_t pid;
-    pid = fork();
-    if (pid == 0) { // child sends messages
-        for(;;) {
-            // Wait for and read user input
-            fgets(command, COMMANDSIZE, stdin);
+        // Keep a copy of the original command before being broken up for decoding
+        strcpy(original_command, command);
+
+        // Command decoding
+        // Reset the variables
+        command_name = "";
+        channel_id = -1;
+        decode_command(command, command_name, &channel_id);
+
+        // Spawn the threads here
+        if (strcmp(command, "STOP") == 0) {
+            // terminate the livenext and next threads
+        } else if (strcmp(command, "NEXT") == 0 && channel_id != -1) {
+            nextChannel(original_command);
+            // create thread
+        } else if (strcmp(command, "NEXT") == 0 && channel_id == -1) {
+            // create thread
+            next(original_command);
+
+        } else if (strcmp(command, "LIVEFEED") == 0 && channel_id != -1) {
+            // create thread
+            livefeedChannel(channel_id);
+
+        } else if (strcmp(command, "LIVEFEED") == 0 && channel_id == -1) {
+            livefeed();
+        } else { // do the usual send and receive  
             // Send command name
-            if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
+            if (send(sockfd, original_command, MAXDATASIZE, 0) == -1) {
                 perror("send");
             }
-        }
-    } else { // parent receives messages 
-        for (;;) {
+            // Receive the response
             if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
                 perror("recv.");
             }
-
             buf[numbytes] = '\0';
 
             printf("%s", buf);
@@ -74,6 +98,93 @@ int main(int argc, char ** argv) {
 
     pthread_exit(NULL);
     return 0;
+}
+
+void nextChannel(char * command) {
+    // Send the command
+    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
+        perror("send");
+    }
+    // Receive the response
+    if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
+        perror("recv.");
+    }
+    buf[numbytes] = '\0';
+
+    printf("%s", buf);
+}
+
+void next(char * command) {
+    // Send the command
+    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
+        perror("send");
+    }
+    // Receive the response
+    if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
+        perror("recv.");
+    }
+    buf[numbytes] = '\0';
+
+    printf("%s", buf);
+}
+
+void livefeed() {
+    while (1) {
+        // Send the command
+        if (send(sockfd, "NEXT", MAXDATASIZE, 0) == -1) {
+            perror("send");
+        }
+        // Receive the response
+        if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
+            perror("recv.");
+        }
+        buf[numbytes] = '\0';
+
+        printf("%s", buf);
+    }
+}
+
+void livefeedChannel(int channel_id) {
+    char command[100];
+    sprintf(command, "NEXT %i", channel_id);
+    while (1) {
+        // Send the command
+        if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
+            perror("send");
+        }
+        // Receive the response
+        if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
+            perror("recv.");
+        }
+        buf[numbytes] = '\0';
+
+        printf("%s", buf);
+    }
+}
+
+
+void decode_command(char* command, char * command_name, int * channel_id) {
+    if (strtok(command, "\n") == NULL) { // No command
+        return;
+    }
+
+    char* sep = strtok(command, " ");   // Separate command from arguments
+    if (sep != NULL) command_name = sep;
+
+    sep = strtok(NULL, " ");
+    if (sep != NULL) {  // Get channel ID
+        // Reset errno to 0 before call 
+        errno = 0;
+
+        // Call to strtol assigning return to number 
+        char *endptr = NULL;
+        *channel_id = strtol(sep, &endptr, 10);
+        
+        if (sep == endptr || errno == EINVAL || (errno != 0 && channel_id == 0) || (errno == 0 && sep && *endptr != 0)) {
+            *channel_id = -1;
+        }
+        
+    } 
 }
 
 void handleSIGINT(int _) {
@@ -87,7 +198,9 @@ void handleSIGINT(int _) {
 
     close(sockfd);
 
+
     exit(1);
+
 }
 
 int setClientPort(int argc, char ** argv) {
