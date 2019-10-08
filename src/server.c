@@ -153,9 +153,6 @@ int main(int argc, char ** argv) {
             } else if (strcmp(command, "BYE") == 0 && channel_id == -1) {
                 printf("BYE command entered.\n");
 
-            } else if (strcmp(command, "STOP") == 0) {
-                // Terminate all outstanding NEXT and LIVEFEED commands
-
             } else {
                 if (send(client->socket, "Invalid command\n", MAXDATASIZE, 0) == -1) {
                     perror("send");
@@ -272,7 +269,7 @@ void next(client_t *client, msgnode_t** msg_list) {
         return_msg[0] = 0; // empty string
     } else {
         read_message(next_channel, client, msg_list); // move head foward
-        sprintf(return_msg, "%d: %s\n", next_channel, next_msg->string); // TODO: insert channel ID prefix as in SPEC
+        sprintf(return_msg, "%d:%s\n", next_channel, next_msg->string); // TODO: insert channel ID prefix as in SPEC
     }
     if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
         perror("send");
@@ -298,14 +295,6 @@ void nextChannel(int channel_id, client_t* client, msgnode_t** msg_list) {
     if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
         perror("send");
     } 
-}
-
-void livefeed(client_t *client) {
-
-}
-
-void livefeedChannel(int channel_id, client_t *client) {
-    
 }
 
 msgnode_t* sendMsg(int channel_id, msg_t *msg, client_t *client, msgnode_t** msg_list) {

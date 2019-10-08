@@ -9,12 +9,6 @@ void handleSIGINT();
 
 void decode_command(char* command, char * command_name, int * channel_id);
 
-void nextChannel(char * command);
+void *nextThreadFunc(void *channel);
 
-void next(char * command);
-
-void livefeed();
-
-void decode_command(char* command, char * command_name, int * channel_id);
-
-void livefeedChannel(int channel_id);
+void *livefeedThreadFunc(void *channel);

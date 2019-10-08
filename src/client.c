@@ -15,7 +15,7 @@
 #define NUMCHANNELS 255
 #define COMMANDSIZE 50  // This will need to be considered
 #define MAX_INPUT 3
-
+#define MAX_THREADS 5
 // Global variables
 int sockfd;
 struct hostent *he;
@@ -23,6 +23,8 @@ struct sockaddr_in server_addr;
 // Receiving data
 int numbytes;  
 char buf[MAXDATASIZE];
+int thread_count;
+
 
 int main(int argc, char ** argv) {
     // Setup the signal handling for SIGINT signal
@@ -37,21 +39,15 @@ int main(int argc, char ** argv) {
     }
     char * input[MAX_INPUT];
 
-
-    //pthread_t threads[NUM_THREADS];
-    //printf("In main: creating thread %ld\n", t);
-    //rc = pthread_create(&threads[t], NULL, PrintHello, (void *)t);
-    //if (rc){
-    //    printf("ERROR; return code from pthread_create() is %d\n", rc);
-    //    exit(-1);
-    //}
-
     // Command components
     char command[COMMANDSIZE];
     char original_command[COMMANDSIZE];
     char * command_name;
     int channel_id;
     char * message;
+    pthread_t threads[MAX_THREADS];
+    thread_count = 0;
+
     for(;;) {
         // Wait for and read user input
         fgets(command, COMMANDSIZE, stdin);
@@ -65,23 +61,34 @@ int main(int argc, char ** argv) {
         channel_id = -1;
         decode_command(command, command_name, &channel_id);
 
-        // Spawn the threads here
         if (strcmp(command, "STOP") == 0) {
-            // terminate the livenext and next threads
-        } else if (strcmp(command, "NEXT") == 0 && channel_id != -1) {
-            nextChannel(original_command);
-            // create thread
-        } else if (strcmp(command, "NEXT") == 0 && channel_id == -1) {
-            // create thread
-            next(original_command);
+            // Terminate any running extra threads
+            for (int i = 0; i < thread_count; i++) {
+                pthread_cancel(threads[i]);
+                thread_count--;
+            }
 
-        } else if (strcmp(command, "LIVEFEED") == 0 && channel_id != -1) {
-            // create thread
-            livefeedChannel(channel_id);
+        } else if (strcmp(command, "NEXT") == 0) {
+            // Create thread (remember channel ID != -1 and == -1)
+            thread_count++;
+            long channel = channel_id;
+            int rc = pthread_create(&threads[thread_count], NULL, nextThreadFunc, (void *)channel);
+            if (rc){
+                printf("ERROR; return code from pthread_create() is %d\n", rc);
+                exit(-1);
+            }
 
-        } else if (strcmp(command, "LIVEFEED") == 0 && channel_id == -1) {
-            livefeed();
-        } else { // do the usual send and receive  
+        } else if (strcmp(command, "LIVEFEED") == 0) {
+            // Create thread (remember channel ID != -1 and == -1)
+            thread_count++;
+            long channel = channel_id;
+            int rc = pthread_create(&threads[thread_count], NULL, nextThreadFunc, (void *)channel);
+            if (rc) {
+                printf("ERROR; return code from pthread_create() is %d\n", rc);
+                exit(-1);
+            }
+
+        } else { // do the usual send and receive
             // Send command name
             if (send(sockfd, original_command, MAXDATASIZE, 0) == -1) {
                 perror("send");
@@ -91,7 +98,6 @@ int main(int argc, char ** argv) {
                 perror("recv.");
             }
             buf[numbytes] = '\0';
-
             printf("%s", buf);
         }
     }
@@ -100,53 +106,36 @@ int main(int argc, char ** argv) {
     return 0;
 }
 
-void nextChannel(char * command) {
+void *nextThreadFunc(void *channel) {
     // Send the command
-    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
-        perror("send");
-    }
-    // Receive the response
-    if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
-        perror("recv.");
-    }
-    buf[numbytes] = '\0';
-
-    printf("%s", buf);
-}
-
-void next(char * command) {
-    // Send the command
-    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
-        perror("send");
-    }
-    // Receive the response
-    if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
-        perror("recv.");
-    }
-    buf[numbytes] = '\0';
-
-    printf("%s", buf);
-}
-
-void livefeed() {
-    while (1) {
-        // Send the command
-        if (send(sockfd, "NEXT", MAXDATASIZE, 0) == -1) {
-            perror("send");
-        }
-        // Receive the response
-        if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
-            perror("recv.");
-        }
-        buf[numbytes] = '\0';
-
-        printf("%s", buf);
-    }
-}
-
-void livefeedChannel(int channel_id) {
     char command[100];
-    sprintf(command, "NEXT %i", channel_id);
+    long channel_id = (long)channel;
+
+    if (channel_id == -1) {
+        sprintf(command, "NEXT");
+    } else if (channel_id != -1) {
+        sprintf(command, "NEXT %d", channel_id);
+    }
+    
+    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
+        perror("send");
+    }
+    // Receive the response
+    if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
+        perror("recv.");
+    }
+    buf[numbytes] = '\0';
+    printf("%s", buf);
+    
+    thread_count--;
+    pthread_exit(NULL);   
+}
+
+void *livefeedThreadFunc(void *channel) { //TODO poll at an interval
+    char command[100];
+    long channel_id = (long)channel;
+    sprintf(command, "NEXT %ld", channel_id);
+
     while (1) {
         // Send the command
         if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
@@ -157,13 +146,14 @@ void livefeedChannel(int channel_id) {
             perror("recv.");
         }
         buf[numbytes] = '\0';
-
         printf("%s", buf);
     }
+    thread_count--;
+    pthread_exit(NULL);
 }
 
 
-void decode_command(char* command, char * command_name, int * channel_id) {
+void decode_command(char* command, char* command_name, int* channel_id) {
     if (strtok(command, "\n") == NULL) { // No command
         return;
     }
@@ -189,18 +179,11 @@ void decode_command(char* command, char * command_name, int * channel_id) {
 
 void handleSIGINT(int _) {
     (void)_; // To stop the compiler complaining
-    printf("Handling the signal gracefully for thread %d...\n", 1); //TODO
+    // TODO: Handle shutdown gracefully. Trigger this when server shuts down
 
-    // Allowing port and address reuse is dealt with in setup
-
-    // TODO: Handle shutdown gracefully
-    // Inform clients etc
-
+    pthread_exit(NULL);
     close(sockfd);
-
-
     exit(1);
-
 }
 
 int setClientPort(int argc, char ** argv) {
@@ -243,7 +226,5 @@ void startClient(int argc, char ** argv) {
 	}
 
 	buf[numbytes] = '\0';
-
 	printf("%s", buf);
-
 }
