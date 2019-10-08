@@ -18,14 +18,7 @@
 #define MAX_INPUT 3
 
 // Global variables
-int port_number; 
-int sockfd;  
-struct hostent *he;
-struct sockaddr_in server_addr;
-
-// Process for handling sending and receiving
-pid_t pid;
-
+int sockfd;
 // Receiving data
 int numbytes;  
 char buf[MAXDATASIZE];
@@ -46,6 +39,7 @@ int main(int argc, char ** argv) {
     char * input[MAX_INPUT];
 
     // Continue to look for new comamnds
+    pid_t pid;
     pid = fork();
     if (pid == 0) { // child sends messages
         for(;;) {
@@ -73,7 +67,7 @@ int main(int argc, char ** argv) {
 
 void handleSIGINT(int _) {
     (void)_; // To stop the compiler complaining
-    printf("Handling the signal gracefully for process %d...\n", pid);
+    printf("Handling the signal gracefully for thread %d...\n", 1); //TODO
 
     // Allowing port and address reuse is dealt with in setup
 
@@ -85,19 +79,21 @@ void handleSIGINT(int _) {
     exit(1);
 }
 
-void setClientPort(int argc, char ** argv) {
+int setClientPort(int argc, char ** argv) {
     if (argc != 3) {
         printf("Please enter both a hostname and port number to connect.\n");
         exit(-1);
     } else {
-        port_number = atoi(argv[2]);
+        return atoi(argv[2]); // Port number
     }
 }
 
 void startClient(int argc, char ** argv) {
     // Set the client's port number
-    setClientPort(argc, argv);
-    
+    int port_number = setClientPort(argc, argv);
+    struct hostent *he;
+    struct sockaddr_in server_addr;
+
     if ((he=gethostbyname(argv[1])) == NULL) {  // Get the server info
 		herror("gethostbyname");
 		exit(1);

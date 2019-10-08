@@ -101,7 +101,9 @@ int main(int argc, char ** argv) {
             char* command = buf;
 
             if (strtok(command, "\n") == NULL) { // No command
-                printf("No command entered\n");
+                if (send(client->socket, "No command entered\n", MAXDATASIZE, 0) == -1) {
+                    perror("send");
+                }
                 continue;
             }
 
@@ -109,8 +111,7 @@ int main(int argc, char ** argv) {
             if (sep != NULL) command_name = sep;
 
             sep = strtok(NULL, " ");
-            if (sep != NULL) {                           // Get channel ID
-                //printf("%s",sep);
+            if (sep != NULL) {  // Get channel ID
                 // Reset errno to 0 before call 
                 errno = 0;
 
@@ -124,22 +125,14 @@ int main(int argc, char ** argv) {
                 }
                 sep = strtok(NULL, ""); // this SHOULD be "" instead of " ". It gets the rest of the message.
             } 
-            // The message is considered to be the rest of command (including
-            // spaces) after the second parameter. 
-            // Checking for too many parameters should be done later and 
-            // dependent on what the command entered was. 
 
-            if (sep != NULL) {                  // Get msg (for send only)
-                strcpy(message, sep);                      // TODO: Msg format validation
+            if (sep != NULL) { // Get msg (for send only)
+                strcpy(message, sep);           // TODO: Msg format validation
             } else {
                 strcpy(message, "");
             }
 
-            //printf("Command entered: %s\n", command_name);
-            //printf("Channel ID entered: %d\n", channel_id);
-            //printf("Message entered: %s\n", message);
-
-            // handle commands - I think we're better off doing it here rather than the client
+            // Handle commands
             if (strcmp(command, "SUB") == 0 && channel_id != 65535) { // Cant be -1 because of uint16_t
                 subscribe(channel_id, client, messages);
 
@@ -181,7 +174,9 @@ int main(int argc, char ** argv) {
                 printf("BYE command entered.\n");
 
             } else {
-                printf("Command entered is not valid.\n");
+                if (send(client->socket, "Invalid command\n", MAXDATASIZE, 0) == -1) {
+                    perror("send");
+                }
             }
         }
     }
