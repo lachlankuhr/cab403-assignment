@@ -4,7 +4,7 @@
 void subscribe(int channel_id, client_t *client, msgnode_t** messages);
 
 /* List all channels CLIENT is connect to, and info about those channels */
-void channels(client_t *client);
+void channels(client_t *client, msgnode_t** msg_list, int * messages_counts);
 
 /* Unsubscribe CLIENT from CHANNEL */
 void unsubscribe(int channel_id, client_t *client);
@@ -41,3 +41,5 @@ msg_t* read_message(int channel_id, client_t* client, msgnode_t** msg_list);
 
 /* Just retrieve next message in specific channel but do NOT move client read head */
 msg_t* get_next_message(int channel_id, client_t* client, msgnode_t** msg_list);
+
+int get_number_unread_messages(int channel_id, client_t* client, msgnode_t** msg_list);
