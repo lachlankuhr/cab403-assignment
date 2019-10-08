@@ -20,6 +20,8 @@
 int sockfd;
 struct hostent *he;
 struct sockaddr_in server_addr;
+int is_livefeed = 0;
+
 // Receiving data
 int numbytes;  
 char buf[MAXDATASIZE];
@@ -68,6 +70,9 @@ int main(int argc, char ** argv) {
                 thread_count--;
             }
 
+        } else if (strcmp(command, "BYE") == 0) {
+            closeConnection();
+
         } else if (strcmp(command, "NEXT") == 0) {
             // Create thread
             thread_count++;
@@ -88,8 +93,8 @@ int main(int argc, char ** argv) {
                 exit(-1);
             }
 
-        } else { // do the usual send and receive
-            // Send command name
+        } else { 
+            // Do the usual send and receive
             if (send(sockfd, original_command, MAXDATASIZE, 0) == -1) {
                 perror("send");
             }
@@ -186,11 +191,12 @@ void decode_command(char* command, char* command_name, int* channel_id) {
 
 void handleSIGINT(int _) {
     (void)_; // To stop the compiler complaining
-    // TODO: Handle shutdown gracefully. Trigger this when server shuts down
-
-    pthread_exit(NULL);
-    close(sockfd);
-    exit(1);
+    if (!is_livefeed) {
+        printf("Handling the signal gracefully for thread %d...\n", 1); //TODO
+        closeConnection();
+    } else {
+        // Exit livefeed as necessary
+    }
 }
 
 int setClientPort(int argc, char ** argv) {
@@ -234,4 +240,28 @@ void startClient(int argc, char ** argv) {
 
 	buf[numbytes] = '\0';
 	printf("%s", buf);
+}
+
+void closeConnection() {
+    printf("Closing client...\n");
+    char command[MAXDATASIZE];
+    sprintf(command, "BYE");
+    // Inform server of exit command so it can implement BYE procedure
+    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
+        perror("send");
+        exit(1);
+    }
+    // Clear dynamic memory - there is none
+
+    // Close threads - when implemented
+    for (int i = 0; i < MAX_THREADS; i++) {
+        pthread_cancel(threads[i]);
+        thread_count--;
+    }
+
+    // Close socket
+    close(sockfd);
+
+    // exit
+    exit(1);
 }

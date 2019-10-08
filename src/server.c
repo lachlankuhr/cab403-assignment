@@ -22,6 +22,7 @@ int sockfd, new_fd;                // Listen on sock_fd, new connection on new_f
 struct sockaddr_in server_addr;    // Server address information
 struct sockaddr_in client_addr;    // Client address information
 socklen_t sin_size;
+msgnode_t* messages[NUMCHANNELS];
 
 // Receving data
 int numbytes;                      // Number of bytes received from clien
@@ -32,7 +33,6 @@ int main(int argc, char ** argv) {
     signal(SIGINT, handleSIGINT);
 
     // Initalise message lists
-    msgnode_t* messages[NUMCHANNELS];
     for (int i = 0; i < NUMCHANNELS; i++) {
         messages[i] = NULL;
     }
@@ -93,8 +93,9 @@ int main(int argc, char ** argv) {
 
         char * command_name;
         int channel_id;
+        int run = 1;
         // Wait for incoming commands (remember we only need to have one client connect right)
-        while (1) {
+        while (run) {
             // Reset the variables
             command_name = "";
             char * message = (char*)malloc(MAXDATASIZE);
@@ -145,13 +146,13 @@ int main(int argc, char ** argv) {
                 }
                 messages[channel_id] = newhead;
                 printf("Sent to %d: %s\n", channel_id, messages[channel_id]->msg->string);
-                // Send back nothing because the 
+                // Send back nothing because otherwise its blocking
                 if (send(client->socket, "", MAXDATASIZE, 0) == -1) {
                     perror("send");
                 }
 
             } else if (strcmp(command, "BYE") == 0 && channel_id == -1) {
-                printf("BYE command entered.\n");
+                run = bye(client);
 
             } else {
                 if (send(client->socket, "Invalid command\n", MAXDATASIZE, 0) == -1) {
@@ -313,8 +314,10 @@ msgnode_t* sendMsg(int channel_id, msg_t *msg, client_t *client, msgnode_t** msg
     return newhead; // return
 }
 
-void bye(client_t *client) {
-
+int bye(client_t *client) {
+    printf("Client disconnected.\n");
+    close(client->socket); // close socket on server side
+    return 0; // required to stop server signal
 }
 
 void handleSIGINT(int _) {
@@ -324,7 +327,25 @@ void handleSIGINT(int _) {
     // Allowing port and address reuse is dealt with in setup
 
     // TODO: Handle shutdown gracefully
-    // Inform clients etc
+
+    // Close threads (in this case processes I think)
+    // This will be implemented once everything else has been.
+
+    // Dynamically allocated memory
+    // Free messages
+    for (int i = 0; i < NUMCHANNELS; i++) {
+        msgnode_t* head = messages[i];
+        while (head != NULL) {
+            msgnode_t* next = head->next;
+            free(head->msg->string); // free message text
+            free(head->msg); // free message struct
+            free(head); // free message node
+            head = next;
+        }
+    }
+    // Clients should be freed automatically because they're stack variables
+
+    // Close sockets
     close(sockfd);
     close(new_fd);
     exit(1);
