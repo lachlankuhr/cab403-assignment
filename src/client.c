@@ -158,7 +158,7 @@ void *livefeedThreadFunc(void *channel) {
         buf[numbytes] = '\0';
         printf("%s", buf);
 
-        sleep(5);
+        sleep(1);
     }
     thread_count--;
     pthread_exit(NULL);
@@ -254,10 +254,7 @@ void closeConnection() {
     // Clear dynamic memory - there is none
 
     // Close threads - when implemented
-    for (int i = 0; i < MAX_THREADS; i++) {
-        pthread_cancel(threads[i]);
-        thread_count--;
-    }
+    pthread_exit(NULL);
 
     // Close socket
     close(sockfd);
