@@ -42,6 +42,12 @@ int main(int argc, char ** argv) {
         messages[i] = NULL;
     }
 
+    // Initalise array containing counts of all the messages sent to channels
+    int messages_counts[NUMCHANNELS];
+    for (int i = 0; i < NUMCHANNELS; i++) {
+        messages_counts[i] = 0;
+    }
+
     // Start the server
     startServer(argc, argv);
 
@@ -65,7 +71,7 @@ int main(int argc, char ** argv) {
         new_client.socket = new_fd; // set socket
         //fcntl(new_client.socket, F_SETFL, O_NONBLOCK); // non-blocking
         for (int i = 0; i < NUMCHANNELS; i++) { // set subscribed channels
-            new_client.channels[i] = 0;
+            new_client.channels[i].subscribed = 0;
         }
         // point client to new client
         client_t* client = &new_client;
@@ -144,7 +150,7 @@ int main(int argc, char ** argv) {
                 subscribe(channel_id, client, messages);
 
             } else if (strcmp(command, "CHANNELS") == 0) {
-                channels(client);
+                channels(client, messages, messages_counts);
 
             } else if (strcmp(command, "UNSUB") == 0 && channel_id != -1) {
                 unsubscribe(channel_id, client);
@@ -163,7 +169,10 @@ int main(int argc, char ** argv) {
             } else if (strcmp(command, "LIVEFEED") == 0 && channel_id == -1) {
                 printf("LIVEFEED command without channel ID entered.\n");
 
-            } else if (strcmp(command, "SEND") == 0) {
+            } else if (strcmp(command, "SEND") == 0 && channel_id != -1) {
+                // Increase 
+                messages_counts[channel_id] += 1;
+
                 // This is done this way due to pointer scope :) in a function means stack variables are destroyed
                 msg_t* msg_struct = (msg_t *)malloc(sizeof(msg_t)); // Construct the message object
                 msg_struct->string = message;
@@ -194,11 +203,11 @@ void subscribe(int channel_id, client_t *client, msgnode_t** messages) {
 
     if (channel_id < 0 || channel_id > 255) {
         sprintf(return_msg, "Invalid channel: %d.\n", channel_id); // will actually need to send back to client but this will do for now
-    } else if (client->channels[channel_id] == 1) {
+    } else if (client->channels[channel_id].subscribed == 1) {
         sprintf(return_msg, "Already subscribed to channel %d.\n", channel_id);
     } else {
         sprintf(return_msg, "Subscribed to channel %d.\n", channel_id);
-        client->channels[channel_id] = 1;
+        client->channels[channel_id].subscribed = 1;
         client->read_msg[channel_id] = messages[channel_id]; // last message in the channel - want to track read messages
     }
 
@@ -207,10 +216,11 @@ void subscribe(int channel_id, client_t *client, msgnode_t** messages) {
     }
 }
 
-void channels(client_t *client) {
-    for (int i = 0; i < NUMCHANNELS; i++) {
-        if (client->channels[i] == 1){
-            sprintf(buf, "%d\tmsg\treadmsg\tunreadmsg\n", i);
+void channels(client_t *client, msgnode_t** msg_list, int * messages_counts) {
+    for (int channel_id = 0; channel_id < NUMCHANNELS; channel_id++) {
+        if (client->channels[channel_id].subscribed == 1) {
+
+            sprintf(buf, "%d\t%d\t%d\t%d\n", channel_id, messages_counts[channel_id], client->channels[channel_id].read, get_number_unread_messages(channel_id, client, msg_list));
             if (send(client->socket, buf, MAXDATASIZE, 0) == -1) {
                 perror("send");
             }
@@ -222,11 +232,11 @@ void unsubscribe(int channel_id, client_t *client) {
     char return_msg[MAXDATASIZE];
     if (channel_id < 0 || channel_id > 255) {
         sprintf(return_msg, "Invalid channel: %d\n", channel_id); // will actually need to send back to client but this will do for now
-    } else if (client->channels[channel_id] == 0) {
+    } else if (client->channels[channel_id].subscribed == 0) {
         sprintf(return_msg, "Not subscribed to channel %d\n", channel_id);
     } else {
         sprintf(return_msg, "Unsubscribed from channel %d\n", channel_id);
-        client->channels[channel_id] = 0;
+        client->channels[channel_id].subscribed = 0;
     }
     if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
         perror("send");
@@ -238,8 +248,10 @@ void next(client_t *client, msgnode_t** msg_list) {
     time_t min_time = time(NULL);
     int next_channel;
     msg_t * next_msg = NULL;
+    int client_subscribed_to_any_channel = 0;
     for (int channel_id = 0; channel_id <  NUMCHANNELS; channel_id++) {
-        if (client->channels[channel_id] == 1) {
+        if (client->channels[channel_id].subscribed == 1) {
+            client_subscribed_to_any_channel = 1;
             msg_t * message = get_next_message(channel_id, client, msg_list); // just get and not move head forward
             if (message != NULL) { // could use short circuiting
                 if (message->time < min_time) {
@@ -250,13 +262,15 @@ void next(client_t *client, msgnode_t** msg_list) {
             }
         }
     }
-    if (next_msg == NULL) {
-        sprintf(return_msg, NULL);
+    if (client_subscribed_to_any_channel == 0) {
+        sprintf(return_msg, "Not subscribed to any channels.\n");
+    } else if (next_msg == NULL) {
+        sprintf(return_msg, " ");
     } else {
         read_message(next_channel, client, msg_list); // move head foward
         sprintf(return_msg, "%s\n", next_msg->string); 
     }
-    if (return_msg != NULL) {
+    if (return_msg != " ") {
         if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
             perror("send");
         }
@@ -268,17 +282,17 @@ void nextChannel(int channel_id, client_t* client, msgnode_t** msg_list) {
     msg_t* message_to_read; 
     if (channel_id < 0 || channel_id > 255) {
         sprintf(return_msg, "Invalid channel: %d\n", channel_id); // will actually need to send back to client but this will do for now
-    } else if (client->channels[channel_id] == 0) {
+    } else if (client->channels[channel_id].subscribed == 0) {
         sprintf(return_msg, "Not subscribed to channel %d\n", channel_id);
     } else {
-        message_to_read = get_next_message(channel_id, client, msg_list);
+        message_to_read = read_message(channel_id, client, msg_list);
         if (message_to_read == NULL) {
-            sprintf(return_msg, NULL);
+            sprintf(return_msg, " ");
         } else {
             sprintf(return_msg, "%s\n", message_to_read->string); 
         }
     }
-    if (return_msg != NULL) {
+    if (return_msg != " ") {
         if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
             perror("send");
         }
@@ -290,7 +304,7 @@ void livefeed(client_t *client) {
 }
 
 void livefeedChannel(int channel_id, client_t *client) {
-
+    
 }
 
 msgnode_t* sendMsg(int channel_id, msg_t *msg, client_t *client, msgnode_t** msg_list) {
@@ -405,6 +419,10 @@ msg_t* read_message(int channel_id, client_t* client, msgnode_t** msg_list) {
         curr_head = curr_head->next;
     }
     client->read_msg[channel_id] = curr_head;
+
+    // Increase the number of read messages
+    client->channels[channel_id].read += 1;
+
     return(curr_head->msg);
 }
 
@@ -418,4 +436,18 @@ msg_t* get_next_message(int channel_id, client_t* client, msgnode_t** msg_list) 
         curr_head = curr_head->next;
     }
     return(curr_head->msg);
+}
+
+int get_number_unread_messages(int channel_id, client_t* client, msgnode_t** msg_list) {
+    msgnode_t* last_read = client->read_msg[channel_id]; // current last read message
+    msgnode_t* curr_head = msg_list[channel_id]; // current head, need to keep moving it back
+    int number_unread = 0;
+    if (curr_head == last_read) {
+        return number_unread;
+    }
+    while (curr_head->next != last_read) {
+        curr_head = curr_head->next;
+        number_unread += 1;
+    }
+    return number_unread + 1; // + 1 is required
 }

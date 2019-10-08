@@ -22,11 +22,18 @@ struct msg_node {
     msgnode_t *next;
 };
 
+/* node of hash table */
+typedef struct client_channel client_channel_t;
+struct client_channel {
+    int subscribed;
+    int read;
+};
+
 typedef struct client client_t;
 struct client {
     int id; // user's ID
     int socket; // socket user is connecting on
-    int channels[NUMCHANNELS]; // boolean to indicate if channel is subscribed to channel at index
+    client_channel_t channels[NUMCHANNELS]; // boolean to indicate if channel is subscribed to channel at index
     msgnode_t* read_msg[NUMCHANNELS]; // pointer to last message client has read in each channel.
     // read_msg is initialised when client joins a channel.
 };
