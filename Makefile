@@ -4,12 +4,12 @@ all: clean server client
 # Target to compile server
 server:
 	mkdir -p build
-	gcc -I include src/server.c -o build/server
+	gcc -I include src/server.c -o build/server -Wall
 
 # Target to compile client
 client: 
 	mkdir -p build
-	gcc -I include src/client.c -o build/client -lpthread
+	gcc -I include src/client.c -o build/client -lpthread -Wall
 
 clean: 
 	rm -rf build/*

@@ -25,8 +25,12 @@ int is_livefeed = 0;
 // Receiving data
 int numbytes;  
 char buf[MAXDATASIZE];
-int next_thread_count;
-int livefeed_thread_count;
+
+//Threading
+int next_thread_count = 0;
+int livefeed_thread_count = 0;
+pthread_t next_threads[MAX_THREADS];
+pthread_t livefeed_threads[MAX_THREADS];
 
 int main(int argc, char ** argv) {
     // Setup the signal handling for SIGINT signal
@@ -34,24 +38,12 @@ int main(int argc, char ** argv) {
 
     // Start the client
     startClient(argc, argv);
-
-    int subscribed_channels[NUMCHANNELS]; // array for subscribed channels - store client side and client can make requests to server
-    for (int i = 0; i < NUMCHANNELS; i++) {
-        subscribed_channels[i] = 0; // initialise subscribed channels array to 0
-    }
-    char * input[MAX_INPUT];
-
+    
     // Command components
     char command[COMMANDSIZE];
     char original_command[COMMANDSIZE];
-    char * command_name;
     int channel_id;
     int rc;
-    char * message;
-    pthread_t next_threads[MAX_THREADS];
-    pthread_t livefeed_threads[MAX_THREADS];
-    next_thread_count = 0;
-    livefeed_thread_count = 0;
 
     for(;;) {
         // Wait for and read user input
@@ -62,55 +54,43 @@ int main(int argc, char ** argv) {
 
         // Command decoding
         // Reset the variables
-        command_name = "";
         channel_id = -1;
-        decode_command(command, command_name, &channel_id); // command_name pointless?
+        decode_command(command, &channel_id);
 
+        // STOP fully handled by client
         if (strcmp(command, "STOP") == 0) {
             // Terminate any running extra threads
-            for (int i = 0; i < next_thread_count; i++) {
-                printf("Cancelling next thread %d\n", i);
-                if (rc = pthread_cancel(next_threads[i])) {
-                    printf("Failed to cancel thread #%d: %d\n", i, rc);
-                    exit(-1);
-                }
-            }
-            next_thread_count = 0;
+            closeThreads();
 
-            for (int i = 0; i < livefeed_thread_count; i++) {
-                printf("Cancelling livefeed thread %d\n", i);
-                if (rc = pthread_cancel(livefeed_threads[i])) {
-                    printf("Failed to cancel thread #%d: %d\n", i, rc);
-                    exit(-1);
-                }
-            }
-            livefeed_thread_count = 0;
-
+        // BYE fully handled by client
         } else if (strcmp(command, "BYE") == 0) {
             closeConnection();
 
+        // NEXT client handles thread creation and sends request to server
         } else if (strcmp(command, "NEXT") == 0) {
             // Create thread
             next_thread_count++;
             long channel = channel_id;
 
-            if (rc = pthread_create(&next_threads[next_thread_count-1],  
-                NULL, nextThreadFunc, (void *)channel)) {
+            if ((rc = pthread_create(&next_threads[next_thread_count-1],  
+                NULL, nextThreadFunc, (void *)channel))) {
                 printf("ERROR; return code from pthread_create() is %d\n", rc);
                 exit(-1);
             }
 
+        // LIVEFEED client handles thread creation and NEXT polling loop
         } else if (strcmp(command, "LIVEFEED") == 0) {
             // Create thread
             livefeed_thread_count++;
             long channel = channel_id;
 
-            if (rc = pthread_create(&livefeed_threads[livefeed_thread_count-1], 
-                NULL, livefeedThreadFunc, (void *)channel)) {
+            if ((rc = pthread_create(&livefeed_threads[livefeed_thread_count-1], 
+                NULL, livefeedThreadFunc, (void *)channel))) {
                 printf("ERROR; return code from pthread_create() is %d\n", rc);
                 exit(-1);
             }
 
+        // All other commands send to server
         } else { 
             // Do the usual send and receive
             if (send(sockfd, original_command, MAXDATASIZE, 0) == -1) {
@@ -137,7 +117,7 @@ void *nextThreadFunc(void *channel) {
     if (channel_id == -1) {
         sprintf(command, "NEXT");
     } else if (channel_id != -1) {
-        sprintf(command, "NEXT %d", channel_id);
+        sprintf(command, "NEXT %ld", channel_id);
     }
     
     if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
@@ -161,7 +141,7 @@ void *livefeedThreadFunc(void *channel) {
     if (channel_id == -1) {
         sprintf(command, "NEXT");
     } else if (channel_id != -1) {
-        sprintf(command, "NEXT %d", channel_id);
+        sprintf(command, "NEXT %ld", channel_id);
     }
     
     while (1) {
@@ -187,13 +167,12 @@ void *livefeedThreadFunc(void *channel) {
 }
 
 
-void decode_command(char* command, char* command_name, int* channel_id) {
+void decode_command(char* command, int* channel_id) {
     if (strtok(command, "\n") == NULL) { // No command
         return;
     }
 
     char* sep = strtok(command, " ");   // Separate command from arguments
-    if (sep != NULL) command_name = sep;
 
     sep = strtok(NULL, " ");
     if (sep != NULL) {  // Get channel ID
@@ -213,12 +192,7 @@ void decode_command(char* command, char* command_name, int* channel_id) {
 
 void handleSIGINT(int _) {
     (void)_; // To stop the compiler complaining
-    if (!is_livefeed) {
-        printf("Handling the signal gracefully for thread %d...\n", 1); //TODO
-        closeConnection();
-    } else {
-        // Exit livefeed as necessary
-    }
+    closeConnection();
 }
 
 int setClientPort(int argc, char ** argv) {
@@ -264,23 +238,41 @@ void startClient(int argc, char ** argv) {
 	printf("%s", buf);
 }
 
+void closeThreads() {
+    int rc;
+    for (int i = 0; i < next_thread_count; i++) {
+        printf("Cancelling next thread %d\n", i);
+        if ((rc = pthread_cancel(next_threads[i]))) {
+            printf("Failed to cancel thread #%d: %d\n", i, rc);
+            exit(-1);
+        }
+    }
+    for (int i = 0; i < livefeed_thread_count; i++) {
+        printf("Cancelling livefeed thread %d\n", i);
+        if ((rc = pthread_cancel(livefeed_threads[i]))) {
+            printf("Failed to cancel thread #%d: %d\n", i, rc);
+            exit(-1);
+        }
+    }
+    next_thread_count = 0;
+    livefeed_thread_count = 0;
+}
+
 void closeConnection() {
-    printf("Closing client...\n");
+    printf("\nClosing client...\n");
+    closeThreads();
+
     char command[MAXDATASIZE];
     sprintf(command, "BYE");
+
     // Inform server of exit command so it can implement BYE procedure
     if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
         perror("send");
         exit(1);
     }
-    // Clear dynamic memory - there is none
-
-    // Close threads - when implemented
-    pthread_exit(NULL);
-
     // Close socket
     close(sockfd);
 
-    // exit
-    exit(1);
+    // Close parent thread and thus all children (MUST be last)
+    pthread_exit(NULL);
 }

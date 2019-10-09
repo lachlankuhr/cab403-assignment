@@ -7,7 +7,7 @@ void startClient(int argc, char ** argv);
 /* Handles SIGINT signal to gracefully exit after crtl+c */
 void handleSIGINT();
 
-void decode_command(char* command, char * command_name, int * channel_id);
+void decode_command(char* command, int * channel_id);
 
 void *nextThreadFunc(void *channel);
 
@@ -17,9 +17,9 @@ void next(char * command);
 
 void livefeed();
 
-void decode_command(char* command, char * command_name, int * channel_id);
-
 void livefeedChannel(int channel_id);
+
+void closeThreads();
 
 /* Deal with BYE or SIGINT */
 void closeConnection();

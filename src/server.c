@@ -28,10 +28,67 @@ msgnode_t* messages[NUMCHANNELS];
 int numbytes;                      // Number of bytes received from clien
 char buf[MAXDATASIZE];             // Buffer to write to
 
+
 int main(int argc, char ** argv) {
     // Setup the signal handling for SIGINT signal
     signal(SIGINT, handleSIGINT);
 
+    // Start the server
+    startServer(argc, argv);
+    int client_id = 1;
+
+    while (1) {
+        // Keeep checking for new connections
+        sin_size = sizeof(struct sockaddr_in);
+		if ((new_fd = accept(sockfd, (struct sockaddr *)&client_addr, &sin_size)) == -1) {
+			perror("accept");
+		}
+		printf("Server: got connection from %s\n", inet_ntoa(client_addr.sin_addr));
+        
+        // TODO: Parent might need to know once child terminates
+        pid_t pid; // TODO: Setup array of these
+        pid = fork();
+        if (pid > 0) { // Parent looks for new connections
+
+            //TODO: ALLOW MULTIPLE CLIENTS
+
+        } else if (pid == 0) { // Child contiinues processing while loop 
+            client_t* client = client_setup(client_id);
+            client_processing(client); // Loops
+        } else {
+            // Fork failed
+            printf("fork() failed\n");
+            return -1;
+        }
+    }
+    return 0;
+}
+
+client_t* client_setup(int client_id) {
+    //Setup new client
+    client_t new_client;
+    new_client.id = client_id; // set client id
+    new_client.socket = new_fd; // set socket
+    for (int i = 0; i < NUMCHANNELS; i++) { // set subscribed channels
+        new_client.channels[i].subscribed = 0;
+    }
+    // Point client to new client
+    client_t* client = &new_client;
+
+    // Respond to client with welcome and choose client ID
+    char msg[1024] = "Welcome! Your client ID is ";
+    char id[5];
+
+    sprintf(id, "%d.\n", client_id);
+    strcat(msg, id);
+
+    if (send(client->socket, msg, MAXDATASIZE, 0) == -1) {
+        perror("send");
+    }
+    return client;
+}
+
+void client_processing (client_t* client) {
     // Initalise message lists
     for (int i = 0; i < NUMCHANNELS; i++) {
         messages[i] = NULL;
@@ -42,131 +99,78 @@ int main(int argc, char ** argv) {
     for (int i = 0; i < NUMCHANNELS; i++) {
         messages_counts[i] = 0;
     }
+    int channel_id;
+    int run = 1;
 
-    // Start the server
-    startServer(argc, argv);
+    while (run) {
+        // Wait for incoming commands
+        // Reset the variables
+        char* message = (char*)malloc(MAXDATASIZE);
+        channel_id = -1;
 
-    int client_id = 1;
-
-    // Keeep checking for new connections
-    while (1) {
-        
-        sin_size = sizeof(struct sockaddr_in);
-		if ((new_fd = accept(sockfd, (struct sockaddr *)&client_addr, &sin_size)) == -1) {
-			perror("accept");
-		}
-		printf("server: got connection from %s\n", inet_ntoa(client_addr.sin_addr));
-        
-        /*
-        pid_t pid;
-        pid = fork();
-        if (pid == 0) { // Child carries on processing
-            for(;;) {
-
-            }
-        } else { // parent loops back around 
-            for (;;) {
-
-            }
-        }*/
-
-        // Set up new client
-        client_t new_client;
-        new_client.id = client_id; // set client id
-        new_client.socket = new_fd; // set socket
-        for (int i = 0; i < NUMCHANNELS; i++) { // set subscribed channels
-            new_client.channels[i].subscribed = 0;
+        // Receive command
+        if ((numbytes = recv(client->socket, buf, MAXDATASIZE, 0)) == -1) {
+                perror("recv");
         }
-        // point client to new client
-        client_t* client = &new_client;
-
-        // Respond to client with welcome and choose client ID
-        char msg[1024] = "Welcome! Your client ID is ";
-        char id[5];
-
-        sprintf(id, "%d.\n", client_id++);
-        strcat(msg, id);
-
-        if (send(client->socket, msg, MAXDATASIZE, 0) == -1) {
-            perror("send");
+        if (numbytes == 0) {
+            printf("Disconnect detected.\n");
+            break;
         }
+        char* command = buf;
 
-        char * command_name;
-        int channel_id;
-        int run = 1;
-        // Wait for incoming commands (remember we only need to have one client connect right)
-        while (run) {
-            // Reset the variables
-            command_name = "";
-            char * message = (char*)malloc(MAXDATASIZE);
-            channel_id = -1;
+        decode_command(client, command, &channel_id, message);
 
-            // Receive command
-            if ((numbytes = recv(client->socket, buf, MAXDATASIZE, 0)) == -1) {
-                    perror("recv");
+        // Handle commands
+        if (strcmp(command, "SUB") == 0) {
+            subscribe(channel_id, client, messages);
+
+        } else if (strcmp(command, "CHANNELS") == 0) {
+            channels (client, messages, messages_counts);
+
+        } else if (strcmp(command, "UNSUB") == 0 && channel_id != -1) {
+            unsubscribe(channel_id, client);
+
+        } else if (strcmp(command, "NEXT") == 0 && channel_id != -1) {
+            nextChannel(channel_id, client, messages);
+            //printf("NEXT command with channel ID %d entered.\n", channel_id);
+
+        } else if (strcmp(command, "NEXT") == 0 && channel_id == -1) {
+            next(client, messages);
+
+        } else if (strcmp(command, "SEND") == 0 && channel_id != -1) {
+            // Increase 
+            messages_counts[channel_id] += 1;
+
+            // This is done this way due to pointer scope :) in a function means stack variables are destroyed
+            msg_t* msg_struct = (msg_t *)malloc(sizeof(msg_t)); // Construct the message object
+            msg_struct->string = message;
+            msg_struct->user = client->id;
+            msg_struct->time = time(NULL);
+            msgnode_t *newhead = sendMsg(channel_id, msg_struct, client, messages);
+            if (newhead == NULL) {
+                printf("Memory allocation error");
+                exit(EXIT_FAILURE);
             }
-            if (numbytes == 0) {
-                printf("Disconnect detected.\n");
-                break;
+            messages[channel_id] = newhead;
+            printf("Sent to %d: %s\n", channel_id, messages[channel_id]->msg->string);
+            // Send back nothing because otherwise its blocking
+            if (send(client->socket, "", MAXDATASIZE, 0) == -1) {
+                perror("send");
             }
-            char* command = buf;
 
-            // command_name pointless?
-            decode_command(client, command, command_name, &channel_id, message);
+        } else if (strcmp(command, "BYE") == 0 && channel_id == -1) {
+            run = bye(client);
 
-            // Handle commands
-            if (strcmp(command, "SUB") == 0 && channel_id != 65535) { // Cant be -1 because of uint16_t
-                subscribe(channel_id, client, messages);
-
-            } else if (strcmp(command, "CHANNELS") == 0) {
-                channels (client, messages, messages_counts);
-
-            } else if (strcmp(command, "UNSUB") == 0 && channel_id != -1) {
-                unsubscribe(channel_id, client);
-
-            } else if (strcmp(command, "NEXT") == 0 && channel_id != -1) {
-                nextChannel(channel_id, client, messages);
-                //printf("NEXT command with channel ID %d entered.\n", channel_id);
-
-            } else if (strcmp(command, "NEXT") == 0 && channel_id == -1) {
-                next(client, messages);
-
-            } else if (strcmp(command, "SEND") == 0 && channel_id != -1) {
-                // Increase 
-                messages_counts[channel_id] += 1;
-
-                // This is done this way due to pointer scope :) in a function means stack variables are destroyed
-                msg_t* msg_struct = (msg_t *)malloc(sizeof(msg_t)); // Construct the message object
-                msg_struct->string = message;
-                msg_struct->user = client->id;
-                msg_struct->time = time(NULL);
-                msgnode_t *newhead = sendMsg(channel_id, msg_struct, client, messages);
-                if (newhead == NULL) {
-                    printf("Memory allocation error");
-                    return EXIT_FAILURE;
-                }
-                messages[channel_id] = newhead;
-                printf("Sent to %d: %s\n", channel_id, messages[channel_id]->msg->string);
-                // Send back nothing because otherwise its blocking
-                if (send(client->socket, "", MAXDATASIZE, 0) == -1) {
-                    perror("send");
-                }
-
-            } else if (strcmp(command, "BYE") == 0 && channel_id == -1) {
-                run = bye(client);
-
-            } else {
-                if (send(client->socket, "Invalid command\n", MAXDATASIZE, 0) == -1) {
-                    perror("send");
-                }
+        } else {
+            if (send(client->socket, "Invalid command\n", MAXDATASIZE, 0) == -1) {
+                perror("send");
             }
         }
     }
-    
-    return 0;
 }
 
-void decode_command(client_t * client, char * command, char * command_name, int * channel_id, char * message) {
+
+void decode_command(client_t * client, char * command, int * channel_id, char * message) {
     if (strtok(command, "\n") == NULL) { // No command
         if (send(client->socket, "No command entered\n", MAXDATASIZE, 0) == -1) {
             perror("send");
@@ -175,7 +179,6 @@ void decode_command(client_t * client, char * command, char * command_name, int 
     }
 
     char* sep = strtok(command, " ");   // Separate command from arguments
-    if (sep != NULL) command_name = sep;
 
     sep = strtok(NULL, " ");
     if (sep != NULL) {  // Get channel ID
@@ -187,9 +190,6 @@ void decode_command(client_t * client, char * command, char * command_name, int 
         *channel_id = strtol(sep, &endptr, 10);
         
         if (sep == endptr || errno == EINVAL || (errno != 0 && *channel_id == 0) || (errno == 0 && sep && *endptr != 0)) {
-            if (send(client->socket, "Invalid channel ID\n", MAXDATASIZE, 0) == -1) {
-                perror("send");
-            }
             *channel_id = -1;
         }
         sep = strtok(NULL, ""); // this SHOULD be "" instead of " ". It gets the rest of the message.
@@ -204,9 +204,11 @@ void decode_command(client_t * client, char * command, char * command_name, int 
 void subscribe(int channel_id, client_t *client, msgnode_t** messages) {
     char return_msg[MAXDATASIZE];
     if (channel_id < 0 || channel_id > 255) {
-        sprintf(return_msg, "Invalid channel: %d.\n", channel_id); // will actually need to send back to client but this will do for now
+        sprintf(return_msg, "Invalid channel: %d.\n", channel_id); // TODO: Consider if showing -1 is good enough when a string is entered?
+    
     } else if (client->channels[channel_id].subscribed == 1) {
         sprintf(return_msg, "Already subscribed to channel %d.\n", channel_id);
+    
     } else {
         sprintf(return_msg, "Subscribed to channel %d.\n", channel_id);
         client->channels[channel_id].subscribed = 1;
@@ -220,6 +222,7 @@ void subscribe(int channel_id, client_t *client, msgnode_t** messages) {
 
 void channels(client_t *client, msgnode_t** msg_list, int * messages_counts) {
     char return_msg[MAXDATASIZE];
+
     for (int channel_id = 0; channel_id < NUMCHANNELS; channel_id++) {
         if (client->channels[channel_id].subscribed == 1) {
             sprintf(buf, "%d\t%d\t%d\t%d\n", channel_id, messages_counts[channel_id], client->channels[channel_id].read, get_number_unread_messages(channel_id, client, msg_list));
@@ -235,8 +238,10 @@ void unsubscribe(int channel_id, client_t *client) {
     char return_msg[MAXDATASIZE];
     if (channel_id < 0 || channel_id > 255) {
         sprintf(return_msg, "Invalid channel: %d\n", channel_id); // will actually need to send back to client but this will do for now
+    
     } else if (client->channels[channel_id].subscribed == 0) {
         sprintf(return_msg, "Not subscribed to channel %d\n", channel_id);
+    
     } else {
         sprintf(return_msg, "Unsubscribed from channel %d\n", channel_id);
         client->channels[channel_id].subscribed = 0;
@@ -252,6 +257,7 @@ void next(client_t *client, msgnode_t** msg_list) {
     int next_channel;
     msg_t * next_msg = NULL;
     int client_subscribed_to_any_channel = 0;
+
     for (int channel_id = 0; channel_id <  NUMCHANNELS; channel_id++) {
         if (client->channels[channel_id].subscribed == 1) {
             client_subscribed_to_any_channel = 1;
@@ -267,8 +273,10 @@ void next(client_t *client, msgnode_t** msg_list) {
     }
     if (client_subscribed_to_any_channel == 0) {
         sprintf(return_msg, "Not subscribed to any channels.\n");
+    
     } else if (next_msg == NULL) {
         return_msg[0] = 0; // empty string
+    
     } else {
         read_message(next_channel, client, msg_list); // move head foward
         sprintf(return_msg, "%d:%s\n", next_channel, next_msg->string); // TODO: insert channel ID prefix as in SPEC
@@ -281,10 +289,13 @@ void next(client_t *client, msgnode_t** msg_list) {
 void nextChannel(int channel_id, client_t* client, msgnode_t** msg_list) {
     char return_msg[MAXDATASIZE];
     msg_t* message_to_read; 
+    
     if (channel_id < 0 || channel_id > 255) {
         sprintf(return_msg, "Invalid channel: %d\n", channel_id); // will actually need to send back to client but this will do for now
+    
     } else if (client->channels[channel_id].subscribed == 0) {
         sprintf(return_msg, "Not subscribed to channel %d\n", channel_id);
+    
     } else {
         message_to_read = read_message(channel_id, client, msg_list);
         if (message_to_read == NULL) {
@@ -302,6 +313,7 @@ void nextChannel(int channel_id, client_t* client, msgnode_t** msg_list) {
 msgnode_t* sendMsg(int channel_id, msg_t *msg, client_t *client, msgnode_t** msg_list) {
     // Check for invalid channel
     char return_msg[MAXDATASIZE];
+    
     if (channel_id < 0 || channel_id > 255) {
         sprintf(return_msg, "Invalid channel: %d\n", channel_id);
         if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
@@ -317,8 +329,8 @@ msgnode_t* sendMsg(int channel_id, msg_t *msg, client_t *client, msgnode_t** msg
 
 int bye(client_t *client) {
     printf("Client disconnected.\n");
-    close(client->socket); // close socket on server side
-    return 0; // required to stop server signal
+    close(client->socket); // Close socket on server side
+    return 0; // Required to stop server signal
 }
 
 void handleSIGINT(int _) {
@@ -327,10 +339,7 @@ void handleSIGINT(int _) {
 
     // Allowing port and address reuse is dealt with in setup
 
-    // TODO: Handle shutdown gracefully
-
-    // Close threads (in this case processes I think)
-    // This will be implemented once everything else has been.
+    // Close processes
 
     // Dynamically allocated memory
     // Free messages
@@ -355,7 +364,7 @@ void handleSIGINT(int _) {
 int setServerPort(int argc, char ** argv) {
     int port_number = 12345;
     if (argc > 1) {
-        int port_number = atoi(argv[1]);
+        port_number = atoi(argv[1]);
     }
     return port_number;
 }   
