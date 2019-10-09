@@ -16,6 +16,7 @@
 #define BACKLOG 10     // How many pending connections queue will hold
 #define MAXDATASIZE 30000
 #define NUMCHANNELS 255
+#define MAXCLIENTS 10
 
 // Global variables
 int sockfd, new_fd;                // Listen on sock_fd, new connection on new_fd
@@ -23,6 +24,8 @@ struct sockaddr_in server_addr;    // Server address information
 struct sockaddr_in client_addr;    // Client address information
 socklen_t sin_size;
 msgnode_t* messages[NUMCHANNELS];
+int messages_counts[NUMCHANNELS];
+int messages_lock;
 
 // Receving data
 int numbytes;                      // Number of bytes received from clien
@@ -35,7 +38,10 @@ int main(int argc, char ** argv) {
 
     // Start the server
     startServer(argc, argv);
-    int client_id = 1;
+    int client_id = 0;
+
+    pid_t pids[MAXCLIENTS];
+    int num_clients = 0;
 
     while (1) {
         // Keeep checking for new connections
@@ -44,25 +50,101 @@ int main(int argc, char ** argv) {
 			perror("accept");
 		}
 		printf("Server: got connection from %s\n", inet_ntoa(client_addr.sin_addr));
-        
-        // TODO: Parent might need to know once child terminates
-        pid_t pid; // TODO: Setup array of these
-        pid = fork();
-        if (pid > 0) { // Parent looks for new connections
+        client_id++;
+        num_clients++;
 
-            //TODO: ALLOW MULTIPLE CLIENTS
+        pids[num_clients-1] = fork();
+        if (pids[num_clients-1] > 0) { // Parent looks for new connections
+            // Parent able to do nothingish and restart the while loop
+            // Currently multiple clients can connect but they act fully independently
 
-        } else if (pid == 0) { // Child contiinues processing while loop 
+            // TODO: ALLOW MULTIPLE CLIENTS
+
+            // Shared memory / message board (Lec and prac 3)
+                // Cannot duplicate messages (think already dealt with)
+                // Use dynamic memory for messages (think already done)
+            // Critical selection problem  (lec 5 reuse reader writer solution)
+                // Sending message is a writer, receiving is a reader
+            // Use mutexes, avoid global locks
+
+        } else if (pids[num_clients-1] == 0) { // Child contiinues processing while loop 
             client_t* client = client_setup(client_id);
             client_processing(client); // Loops
+
+            // TODO: Tell parent of termination and/or figure out logic to update
+            // the pids array that doesn't leave bubbles when the 'not-last' process stops
+
         } else {
             // Fork failed
             printf("fork() failed\n");
-            return -1;
+            return -1; // TODO: Consistent failure error handling everywhere
         }
     }
     return 0;
 }
+
+
+void startServer(int argc, char ** argv) {
+    // Set the server port
+    int port_number = setServerPort(argc, argv);
+
+    // Generate socket
+	if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+		perror("socket");
+		exit(0);
+	}
+
+	// Generate the end point
+	server_addr.sin_family = AF_INET;              // Host byte order
+	server_addr.sin_port = htons(port_number);     // Short, network byte order
+	server_addr.sin_addr.s_addr = INADDR_ANY;      // Auto-fill with my IP
+	bzero(&(server_addr.sin_zero), 8);             // Zero the rest of the struct
+
+    // Set options allowing address and port reuse
+    int reuse = 1;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse)) < 0)
+        perror("setsockopt(SO_REUSEADDR) failed");
+
+    #ifdef SO_REUSEPORT
+    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, (const char*)&reuse, sizeof(reuse)) < 0) 
+        perror("setsockopt(SO_REUSEPORT) failed");
+    #endif
+
+	// Bind the socket to the end point
+	if (bind(sockfd, (struct sockaddr *)&server_addr, 
+    sizeof(struct sockaddr)) == -1) {
+		perror("bind");
+		exit(-1);
+	}
+
+	// Start listnening
+	if (listen(sockfd, BACKLOG) == -1) {
+		perror("listen");
+		exit(0);
+	}
+    
+	printf("Server is listening on port: %i.\n", port_number);
+
+    // Initalise message lists
+    for (int i = 0; i < NUMCHANNELS; i++) {
+        messages[i] = NULL;
+    }
+
+    // Initalise array containing counts of all the messages sent to channels
+    for (int i = 0; i < NUMCHANNELS; i++) {
+        messages_counts[i] = 0;
+    }
+}
+
+
+int setServerPort(int argc, char ** argv) {
+    int port_number = 12345;
+    if (argc > 1) {
+        port_number = atoi(argv[1]);
+    }
+    return port_number;
+}
+
 
 client_t* client_setup(int client_id) {
     //Setup new client
@@ -88,17 +170,9 @@ client_t* client_setup(int client_id) {
     return client;
 }
 
-void client_processing (client_t* client) {
-    // Initalise message lists
-    for (int i = 0; i < NUMCHANNELS; i++) {
-        messages[i] = NULL;
-    }
 
-    // Initalise array containing counts of all the messages sent to channels
-    int messages_counts[NUMCHANNELS];
-    for (int i = 0; i < NUMCHANNELS; i++) {
-        messages_counts[i] = 0;
-    }
+void client_processing (client_t* client) {
+    // What each process loops around while client active
     int channel_id;
     int run = 1;
 
@@ -131,14 +205,18 @@ void client_processing (client_t* client) {
             unsubscribe(channel_id, client);
 
         } else if (strcmp(command, "NEXT") == 0 && channel_id != -1) {
-            nextChannel(channel_id, client, messages);
-            //printf("NEXT command with channel ID %d entered.\n", channel_id);
+            nextChannel(channel_id, client, messages);      // TODO: No response to client when an invalid channel is used because -1 defaults to the other next command
 
         } else if (strcmp(command, "NEXT") == 0 && channel_id == -1) {
             next(client, messages);
 
-        } else if (strcmp(command, "SEND") == 0 && channel_id != -1) {
-            // Increase 
+        } else if (strcmp(command, "SEND") == 0) {
+            if (channel_id == -1) {
+                if (send(client->socket, "Invalid channel\n", MAXDATASIZE, 0) == -1) {
+                perror("send");
+                }
+            }
+            // Increase
             messages_counts[channel_id] += 1;
 
             // This is done this way due to pointer scope :) in a function means stack variables are destroyed
@@ -201,6 +279,7 @@ void decode_command(client_t * client, char * command, int * channel_id, char * 
     }
 }
 
+
 void subscribe(int channel_id, client_t *client, msgnode_t** messages) {
     char return_msg[MAXDATASIZE];
     if (channel_id < 0 || channel_id > 255) {
@@ -220,6 +299,7 @@ void subscribe(int channel_id, client_t *client, msgnode_t** messages) {
     }
 }
 
+
 void channels(client_t *client, msgnode_t** msg_list, int * messages_counts) {
     char return_msg[MAXDATASIZE];
 
@@ -233,6 +313,7 @@ void channels(client_t *client, msgnode_t** msg_list, int * messages_counts) {
         perror("send");
     }
 }
+
 
 void unsubscribe(int channel_id, client_t *client) {
     char return_msg[MAXDATASIZE];
@@ -250,6 +331,7 @@ void unsubscribe(int channel_id, client_t *client) {
         perror("send");
     }
 }
+
 
 void next(client_t *client, msgnode_t** msg_list) {
     char return_msg[MAXDATASIZE];
@@ -286,6 +368,7 @@ void next(client_t *client, msgnode_t** msg_list) {
     }
 }
 
+
 void nextChannel(int channel_id, client_t* client, msgnode_t** msg_list) {
     char return_msg[MAXDATASIZE];
     msg_t* message_to_read; 
@@ -310,6 +393,7 @@ void nextChannel(int channel_id, client_t* client, msgnode_t** msg_list) {
     } 
 }
 
+
 msgnode_t* sendMsg(int channel_id, msg_t *msg, client_t *client, msgnode_t** msg_list) {
     // Check for invalid channel
     char return_msg[MAXDATASIZE];
@@ -327,19 +411,21 @@ msgnode_t* sendMsg(int channel_id, msg_t *msg, client_t *client, msgnode_t** msg
     return newhead; // return
 }
 
+
 int bye(client_t *client) {
     printf("Client disconnected.\n");
     close(client->socket); // Close socket on server side
     return 0; // Required to stop server signal
 }
 
+
 void handleSIGINT(int _) {
     (void)_; // To stop the compiler complaining
-    printf("Handling the signal gracefully...\n");
+    // Kill extra process first
+    // Close everything in pids[] array
 
-    // Allowing port and address reuse is dealt with in setup
-
-    // Close processes
+    // Then printf statement
+    printf("\nHandling the signal gracefully...\n"); // TODO: Deal with every process triggering...
 
     // Dynamically allocated memory
     // Free messages
@@ -361,55 +447,6 @@ void handleSIGINT(int _) {
     exit(1);
 }
 
-int setServerPort(int argc, char ** argv) {
-    int port_number = 12345;
-    if (argc > 1) {
-        port_number = atoi(argv[1]);
-    }
-    return port_number;
-}   
-
-void startServer(int argc, char ** argv) {
-    // Set the server port
-    int port_number = setServerPort(argc, argv);
-
-    // Generate socket
-	if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-		perror("socket");
-		exit(0);
-	}
-
-	// Generate the end point
-	server_addr.sin_family = AF_INET;              // Host byte order
-	server_addr.sin_port = htons(port_number);     // Short, network byte order
-	server_addr.sin_addr.s_addr = INADDR_ANY;      // Auto-fill with my IP
-	bzero(&(server_addr.sin_zero), 8);             // Zero the rest of the struct
-
-    // Set options allowing address and port reuse
-    int reuse = 1;
-    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse)) < 0)
-        perror("setsockopt(SO_REUSEADDR) failed");
-
-    #ifdef SO_REUSEPORT
-    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, (const char*)&reuse, sizeof(reuse)) < 0) 
-        perror("setsockopt(SO_REUSEPORT) failed");
-    #endif
-
-	// Bind the socket to the end point
-	if (bind(sockfd, (struct sockaddr *)&server_addr, 
-    sizeof(struct sockaddr)) == -1) {
-		perror("bind");
-		exit(-1);
-	}
-
-	// Start listnening
-	if (listen(sockfd, BACKLOG) == -1) {
-		perror("listen");
-		exit(0);
-	}
-    
-	printf("Server is listening on port: %i.\n", port_number);
-}
 
 msgnode_t * node_add(msgnode_t *head, msg_t *message) {
     // create new node to add to list
@@ -423,6 +460,7 @@ msgnode_t * node_add(msgnode_t *head, msg_t *message) {
     new->next = head;
     return new;
 }
+
 
 msg_t* read_message(int channel_id, client_t* client, msgnode_t** msg_list) {
     msgnode_t* last_read = client->read_msg[channel_id]; // current last read message
@@ -441,6 +479,7 @@ msg_t* read_message(int channel_id, client_t* client, msgnode_t** msg_list) {
     return(curr_head->msg);
 }
 
+
 msg_t* get_next_message(int channel_id, client_t* client, msgnode_t** msg_list) {
     msgnode_t* last_read = client->read_msg[channel_id]; // current last read message
     msgnode_t* curr_head = msg_list[channel_id]; // current head, need to keep moving it back
@@ -452,6 +491,7 @@ msg_t* get_next_message(int channel_id, client_t* client, msgnode_t** msg_list) 
     }
     return(curr_head->msg);
 }
+
 
 int get_number_unread_messages(int channel_id, client_t* client, msgnode_t** msg_list) {
     msgnode_t* last_read = client->read_msg[channel_id]; // current last read message

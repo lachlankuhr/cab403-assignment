@@ -32,6 +32,7 @@ int livefeed_thread_count = 0;
 pthread_t next_threads[MAX_THREADS];
 pthread_t livefeed_threads[MAX_THREADS];
 
+
 int main(int argc, char ** argv) {
     // Setup the signal handling for SIGINT signal
     signal(SIGINT, handleSIGINT);
@@ -109,100 +110,6 @@ int main(int argc, char ** argv) {
     return 0;
 }
 
-void *nextThreadFunc(void *channel) {
-    // Send the command
-    char command[100];
-    long channel_id = (long)channel;
-
-    if (channel_id == -1) {
-        sprintf(command, "NEXT");
-    } else if (channel_id != -1) {
-        sprintf(command, "NEXT %ld", channel_id);
-    }
-    
-    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
-        perror("send");
-    }
-    // Receive the response
-    if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
-        perror("recv.");
-    }
-    buf[numbytes] = '\0';
-    printf("%s", buf);
-    
-    next_thread_count--;
-    pthread_exit(NULL);
-}
-
-void *livefeedThreadFunc(void *channel) {
-    char command[100];
-    long channel_id = (long)channel;
-
-    if (channel_id == -1) {
-        sprintf(command, "NEXT");
-    } else if (channel_id != -1) {
-        sprintf(command, "NEXT %ld", channel_id);
-    }
-    
-    while (1) {
-        // Send the command
-        if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
-            perror("send");
-        }
-        // Receive the response
-        if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
-            perror("recv.");
-        }
-        buf[numbytes] = '\0';
-        printf("%s", buf);
-        
-        if (strncmp(buf, "Not", 3) == 0) {
-            break;
-        }
-
-        sleep(1);
-    }
-    livefeed_thread_count--;
-    pthread_exit(NULL);
-}
-
-
-void decode_command(char* command, int* channel_id) {
-    if (strtok(command, "\n") == NULL) { // No command
-        return;
-    }
-
-    char* sep = strtok(command, " ");   // Separate command from arguments
-
-    sep = strtok(NULL, " ");
-    if (sep != NULL) {  // Get channel ID
-        // Reset errno to 0 before call 
-        errno = 0;
-
-        // Call to strtol assigning return to number 
-        char *endptr = NULL;
-        *channel_id = strtol(sep, &endptr, 10);
-        
-        if (sep == endptr || errno == EINVAL || (errno != 0 && channel_id == 0) || (errno == 0 && sep && *endptr != 0)) {
-            *channel_id = -1;
-        }
-        
-    } 
-}
-
-void handleSIGINT(int _) {
-    (void)_; // To stop the compiler complaining
-    closeConnection();
-}
-
-int setClientPort(int argc, char ** argv) {
-    if (argc != 3) {
-        printf("Please enter both a hostname and port number to connect.\n");
-        exit(-1);
-    } else {
-        return atoi(argv[2]); // Port number
-    }
-}
 
 void startClient(int argc, char ** argv) {
     // Set the client's port number
@@ -238,6 +145,106 @@ void startClient(int argc, char ** argv) {
 	printf("%s", buf);
 }
 
+
+int setClientPort(int argc, char ** argv) {
+    if (argc != 3) {
+        printf("Please enter both a hostname and port number to connect.\n");
+        exit(-1);
+    } else {
+        return atoi(argv[2]); // Port number
+    }
+}
+
+
+void decode_command(char* command, int* channel_id) {
+    if (strtok(command, "\n") == NULL) { // No command
+        return;
+    }
+
+    char* sep = strtok(command, " ");   // Separate command from arguments
+
+    sep = strtok(NULL, " ");
+    if (sep != NULL) {  // Get channel ID
+        // Reset errno to 0 before call 
+        errno = 0;
+
+        // Call to strtol assigning return to number 
+        char *endptr = NULL;
+        *channel_id = strtol(sep, &endptr, 10);
+        
+        if (sep == endptr || errno == EINVAL || (errno != 0 && channel_id == 0) || (errno == 0 && sep && *endptr != 0)) {
+            *channel_id = -1;
+        }
+        
+    } 
+}
+
+
+void *nextThreadFunc(void *channel) {
+    // Send the command
+    char command[100];
+    long channel_id = (long)channel;
+
+    if (channel_id == -1) {
+        sprintf(command, "NEXT");
+    } else if (channel_id != -1) {
+        sprintf(command, "NEXT %ld", channel_id);
+    }
+    
+    if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
+        perror("send");
+    }
+    // Receive the response
+    if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
+        perror("recv.");
+    }
+    buf[numbytes] = '\0';
+    printf("%s", buf);
+    
+    next_thread_count--;
+    pthread_exit(NULL);
+}
+
+
+void *livefeedThreadFunc(void *channel) {
+    char command[100];
+    long channel_id = (long)channel;
+
+    if (channel_id == -1) {
+        sprintf(command, "NEXT");
+    } else if (channel_id != -1) {
+        sprintf(command, "NEXT %ld", channel_id);
+    }
+    
+    while (1) {
+        // Send the command
+        if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
+            perror("send");
+        }
+        // Receive the response
+        if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
+            perror("recv.");
+        }
+        buf[numbytes] = '\0';
+        printf("%s", buf);
+        
+        if (strncmp(buf, "Not", 3) == 0) {
+            break;
+        }
+
+        sleep(1);
+    }
+    livefeed_thread_count--;
+    pthread_exit(NULL);
+}
+
+
+void handleSIGINT(int _) {
+    (void)_; // To stop the compiler complaining
+    closeConnection();
+}
+
+
 void closeThreads() {
     int rc;
     for (int i = 0; i < next_thread_count; i++) {
@@ -257,6 +264,7 @@ void closeThreads() {
     next_thread_count = 0;
     livefeed_thread_count = 0;
 }
+
 
 void closeConnection() {
     printf("\nClosing client...\n");
