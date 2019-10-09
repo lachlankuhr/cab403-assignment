@@ -199,7 +199,7 @@ void client_processing (client_t* client) {
             subscribe(channel_id, client, messages);
 
         } else if (strcmp(command, "CHANNELS") == 0) {
-            channels (client, messages, messages_counts);
+            channels(client, messages, messages_counts);
 
         } else if (strcmp(command, "UNSUB") == 0 && channel_id != -1) {
             unsubscribe(channel_id, client);
@@ -303,10 +303,12 @@ void subscribe(int channel_id, client_t *client, msgnode_t** messages) {
 void channels(client_t *client, msgnode_t** msg_list, int * messages_counts) {
     char return_msg[MAXDATASIZE];
 
+    printf("in channels\n");
+
     for (int channel_id = 0; channel_id < NUMCHANNELS; channel_id++) {
         if (client->channels[channel_id].subscribed == 1) {
             sprintf(buf, "%d\t%d\t%d\t%d\n", channel_id, messages_counts[channel_id], client->channels[channel_id].read, get_number_unread_messages(channel_id, client, msg_list));
-            strcat(return_msg, buf);
+            strcpy(return_msg, buf);
         }
     }
     if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
