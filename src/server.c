@@ -302,13 +302,12 @@ void subscribe(int channel_id, client_t *client, msgnode_t** messages) {
 
 void channels(client_t *client, msgnode_t** msg_list, int * messages_counts) {
     char return_msg[MAXDATASIZE];
-
-    printf("in channels\n");
+    strcpy(return_msg, "");
 
     for (int channel_id = 0; channel_id < NUMCHANNELS; channel_id++) {
         if (client->channels[channel_id].subscribed == 1) {
             sprintf(buf, "%d\t%d\t%d\t%d\n", channel_id, messages_counts[channel_id], client->channels[channel_id].read, get_number_unread_messages(channel_id, client, msg_list));
-            strcpy(return_msg, buf);
+            strcat(return_msg, buf);
         }
     }
     if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
@@ -320,7 +319,7 @@ void channels(client_t *client, msgnode_t** msg_list, int * messages_counts) {
 void unsubscribe(int channel_id, client_t *client) {
     char return_msg[MAXDATASIZE];
     if (channel_id < 0 || channel_id > 255) {
-        sprintf(return_msg, "Invalid channel: %d\n", channel_id); // will actually need to send back to client but this will do for now
+        sprintf(return_msg, "Invalid channel: %d\n", channel_id);
     
     } else if (client->channels[channel_id].subscribed == 0) {
         sprintf(return_msg, "Not subscribed to channel %d\n", channel_id);
