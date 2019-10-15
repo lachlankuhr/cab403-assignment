@@ -21,6 +21,7 @@ int sockfd;
 struct hostent *he;
 struct sockaddr_in server_addr;
 int is_livefeed = 0;
+int exiting = 0;
 
 // Receiving data
 int numbytes;  
@@ -244,7 +245,10 @@ void *livefeedThreadFunc(void *channel) {
 
 void handleSIGINT(int _) {
     (void)_; // To stop the compiler complaining
-    closeConnection();
+    if (exiting == 0) {
+        exiting = 1;
+        closeConnection();
+    }
 }
 
 

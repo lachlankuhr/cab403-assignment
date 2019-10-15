@@ -38,7 +38,7 @@ msg_t* get_next_message(int channel_id, client_t* client, msgnode_t** msg_list);
 
 int get_number_unread_messages(int channel_id, client_t* client, msgnode_t** msg_list);
 
-void decode_command(client_t * client, char* command, int * channel_id, char* message);
+void decode_command(client_t* client, char* command, int * channel_id, char* message, int* true_neg_one);
 
 client_t* client_setup(int client_id);
 

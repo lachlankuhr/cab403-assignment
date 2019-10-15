@@ -26,6 +26,7 @@ socklen_t sin_size;
 msgnode_t* messages[NUMCHANNELS];
 int messages_counts[NUMCHANNELS];
 int messages_lock;
+int exiting = 0;
 
 // Receving data
 int numbytes;                      // Number of bytes received from clien
@@ -191,8 +192,9 @@ void client_processing (client_t* client) {
             break;
         }
         char* command = buf;
+        int true_neg_one = 0;
 
-        decode_command(client, command, &channel_id, message);
+        decode_command(client, command, &channel_id, message, &true_neg_one);
 
         // Handle commands
         if (strcmp(command, "SUB") == 0) {
@@ -201,21 +203,18 @@ void client_processing (client_t* client) {
         } else if (strcmp(command, "CHANNELS") == 0) {
             channels(client, messages, messages_counts);
 
-        } else if (strcmp(command, "UNSUB") == 0 && channel_id != -1) {
+        } else if (strcmp(command, "UNSUB") == 0 && (channel_id != -1 || true_neg_one == 1)) {
             unsubscribe(channel_id, client);
 
-        } else if (strcmp(command, "NEXT") == 0 && channel_id != -1) {
-            nextChannel(channel_id, client, messages);      // TODO: No response to client when an invalid channel is used because -1 defaults to the other next command
-
-        } else if (strcmp(command, "NEXT") == 0 && channel_id == -1) {
-            next(client, messages);
+        } else if (strcmp(command, "NEXT") == 0) {
+            if (channel_id == -1 && true_neg_one == 0) {
+                next(client, messages);
+            } else {
+                nextChannel(channel_id, client, messages);
+                // TODO: No response to client when an invalid channel is used because -1 defaults to the other next command
+            }
 
         } else if (strcmp(command, "SEND") == 0) {
-            if (channel_id == -1) {
-                if (send(client->socket, "Invalid channel\n", MAXDATASIZE, 0) == -1) {
-                perror("send");
-                }
-            }
             // Increase
             messages_counts[channel_id] += 1;
 
@@ -231,6 +230,8 @@ void client_processing (client_t* client) {
             }
             messages[channel_id] = newhead;
             printf("Sent to %d: %s\n", channel_id, messages[channel_id]->msg->string);
+            // TODO: Fix "SEND -1 msg" printing statement to the server as it
+            
             // Send back nothing because otherwise its blocking
             if (send(client->socket, "", MAXDATASIZE, 0) == -1) {
                 perror("send");
@@ -238,17 +239,23 @@ void client_processing (client_t* client) {
 
         } else if (strcmp(command, "BYE") == 0 && channel_id == -1) {
             run = bye(client);
+            //TODO: Chop the process
 
         } else {
-            if (send(client->socket, "Invalid command\n", MAXDATASIZE, 0) == -1) {
-                perror("send");
+            if (strtok(command, "\n") != NULL) { // Important to prevent the no command entered and invalid command printing
+                if (send(client->socket, "Invalid command\n", MAXDATASIZE, 0) == -1) {
+                    perror("send");
+                }
             }
         }
     }
 }
 
 
-void decode_command(client_t * client, char * command, int * channel_id, char * message) {
+void decode_command(client_t *client, char *command, int *channel_id, char *message, int *true_neg_one) {
+    char original[MAXDATASIZE];
+    strcpy(original, command);
+
     if (strtok(command, "\n") == NULL) { // No command
         if (send(client->socket, "No command entered\n", MAXDATASIZE, 0) == -1) {
             perror("send");
@@ -257,16 +264,30 @@ void decode_command(client_t * client, char * command, int * channel_id, char * 
     }
 
     char* sep = strtok(command, " ");   // Separate command from arguments
-
+    printf("Sep: %s\n", sep);
     sep = strtok(NULL, " ");
+    printf("Sep: %s\n", sep);
+    printf("Command: %s\n", command);
+    if (sep == NULL && strcmp(original, "NEXT -1") == 0) {
+        *true_neg_one = 1;
+    } else {
+        *true_neg_one = 0;
+    }
+
     if (sep != NULL) {  // Get channel ID
         // Reset errno to 0 before call 
         errno = 0;
 
-        // Call to strtol assigning return to number 
+        // Call to strtol assigning return to number
         char *endptr = NULL;
         *channel_id = strtol(sep, &endptr, 10);
         
+        if (*channel_id == -1) {
+            *true_neg_one = 1;
+        } else {
+            *true_neg_one = 0;
+        }
+
         if (sep == endptr || errno == EINVAL || (errno != 0 && *channel_id == 0) || (errno == 0 && sep && *endptr != 0)) {
             *channel_id = -1;
         }
@@ -277,6 +298,8 @@ void decode_command(client_t * client, char * command, int * channel_id, char * 
     } else {
         strcpy(message, "");
     }
+    printf("ID: %d\n", *channel_id);
+    printf("Neg: %d\n", *true_neg_one);
 }
 
 
@@ -372,10 +395,10 @@ void next(client_t *client, msgnode_t** msg_list) {
 
 void nextChannel(int channel_id, client_t* client, msgnode_t** msg_list) {
     char return_msg[MAXDATASIZE];
-    msg_t* message_to_read; 
+    msg_t* message_to_read;
     
     if (channel_id < 0 || channel_id > 255) {
-        sprintf(return_msg, "Invalid channel: %d\n", channel_id); // will actually need to send back to client but this will do for now
+        sprintf(return_msg, "Invalid channel: %d\n", channel_id);
     
     } else if (client->channels[channel_id].subscribed == 0) {
         sprintf(return_msg, "Not subscribed to channel %d\n", channel_id);
@@ -383,7 +406,7 @@ void nextChannel(int channel_id, client_t* client, msgnode_t** msg_list) {
     } else {
         message_to_read = read_message(channel_id, client, msg_list);
         if (message_to_read == NULL) {
-            return_msg[0] = 0; // empty string
+            return_msg[0] = 0;
         } else {
             sprintf(return_msg, "%d:%s\n", channel_id, message_to_read->string); 
         }
@@ -422,11 +445,10 @@ int bye(client_t *client) {
 
 void handleSIGINT(int _) {
     (void)_; // To stop the compiler complaining
+
     // Kill extra process first
     // Close everything in pids[] array
 
-    // Then printf statement
-    printf("\nHandling the signal gracefully...\n"); // TODO: Deal with every process triggering...
 
     // Dynamically allocated memory
     // Free messages
@@ -441,6 +463,9 @@ void handleSIGINT(int _) {
         }
     }
     // Clients should be freed automatically because they're stack variables
+
+    printf("\nHandling the signal gracefully...\n"); 
+    // TODO: Deal with every process triggering...
 
     // Close sockets
     close(sockfd);
