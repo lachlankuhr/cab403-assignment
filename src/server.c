@@ -230,7 +230,7 @@ void client_processing (client_t* client) {
             }
             messages[channel_id] = newhead;
             printf("Sent to %d: %s\n", channel_id, messages[channel_id]->msg->string);
-            // TODO: Fix "SEND -1 msg" printing statement to the server as it
+            // TODO: Fix "SEND -1 msg" printing this statement to the server (or any invalid channel)
             
             // Send back nothing because otherwise its blocking
             if (send(client->socket, "", MAXDATASIZE, 0) == -1) {
@@ -264,15 +264,12 @@ void decode_command(client_t *client, char *command, int *channel_id, char *mess
     }
 
     char* sep = strtok(command, " ");   // Separate command from arguments
-    printf("Sep: %s\n", sep);
     sep = strtok(NULL, " ");
-    printf("Sep: %s\n", sep);
-    printf("Command: %s\n", command);
-    if (sep == NULL && strcmp(original, "NEXT -1") == 0) {
-        *true_neg_one = 1;
-    } else {
-        *true_neg_one = 0;
-    }
+
+    // This weird check is needed and I don't know why
+    // SUB -1 works, NEXT -2 works, but NEXT -1 errors out and sep becomes NULL
+    // true_neg_one is set in the larger if statement normally
+    if (sep == NULL && strcmp(original, "NEXT -1") == 0) *true_neg_one = 1;
 
     if (sep != NULL) {  // Get channel ID
         // Reset errno to 0 before call 
@@ -282,11 +279,7 @@ void decode_command(client_t *client, char *command, int *channel_id, char *mess
         char *endptr = NULL;
         *channel_id = strtol(sep, &endptr, 10);
         
-        if (*channel_id == -1) {
-            *true_neg_one = 1;
-        } else {
-            *true_neg_one = 0;
-        }
+        if (*channel_id == -1) *true_neg_one = 1;
 
         if (sep == endptr || errno == EINVAL || (errno != 0 && *channel_id == 0) || (errno == 0 && sep && *endptr != 0)) {
             *channel_id = -1;
