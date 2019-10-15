@@ -13,14 +13,17 @@
 #include <fcntl.h> 
 #include "server.h"
 #include <sys/mman.h>
+#include <semaphore.h>
 
 #define BACKLOG 10     // How many pending connections queue will hold
 #define MAXDATASIZE 30000
 #define NUMCHANNELS 255
 #define MAXCLIENTS 10
+#define MAX_LEN 10000
 
 // Global variables
 int sockfd, new_fd;       // Listen on sock_fd, new connection on new_fd
+socklen_t sin_size;
 msgnode_t* messages_array[NUMCHANNELS];
 int messages_counts_array[NUMCHANNELS];
 msgnode_t** messages;
@@ -31,18 +34,57 @@ char buf[MAXDATASIZE];
 int main(int argc, char ** argv) {
     // Setup the signal handling for SIGINT signal
     signal(SIGINT, handleSIGINT);
+    int fd1;
+    int fd2;
 
-    int fd1, fd2;
-    setupSharedMem(&fd1, &fd2);
+    //Create shared memory
+    fd1 = shm_open("/messagesregion", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+    if (fd1 == -1) {
+        printf("Error: shm_open\n");
+        return 0;
+    }
+    fd2 = shm_open("/countsregion", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+    if (fd2 == -1) {
+        printf("Error: shm_open\n");
+        return 0;
+    }
+
+    //Expand to meet the desirable size
+    if (ftruncate(fd1, sizeof(messages_array)) == -1) {
+        printf("Error: ftruncate\n");
+        return 0;
+    }
+    if (ftruncate(fd2, sizeof(messages_counts_array)) == -1) {
+        printf("Error: ftruncate\n");
+        return 0;
+    }
+    
+    messages = mmap(NULL, sizeof(messages_array), PROT_READ | PROT_WRITE, MAP_SHARED, fd1, 0);
+    if (messages == MAP_FAILED) {
+        printf("Error\n");
+        return 0;
+    }
+    messages_counts = mmap(NULL, sizeof(messages_counts_array), PROT_READ | PROT_WRITE, MAP_SHARED, fd2, 0);
+    if (messages_counts == MAP_FAILED) {
+        printf("Error\n");
+        return 0;
+    }
+
+    memcpy(messages_array, messages, sizeof(messages_array));
+    memcpy(messages_counts_array, messages_counts, sizeof(messages_counts_array));
     
     // Start the server
     startServer(argc, argv);
     int client_id = 0;
     struct sockaddr_in client_addr;
-    socklen_t sin_size;
 
     pid_t pids[MAXCLIENTS];
     int num_clients = 0;
+
+
+    
+    //https://stackoverflow.com/questions/4836863/shared-memory-or-mmap-linux-c-c-ipc
+    //https://gist.github.com/garcia556/8231e844a90457c99cc72e5add8388e4
 
     while (1) {
         // Keeep checking for new connections
@@ -53,9 +95,7 @@ int main(int argc, char ** argv) {
 		printf("Server: got connection from %s\n", inet_ntoa(client_addr.sin_addr));
         client_id++;
         num_clients++;
-        printf("Server");
-        
-        fflush(stdout);
+
         pids[num_clients-1] = fork();
         if (pids[num_clients-1] > 0) { // Parent looks for new connections
             // Parent able to do nothingish and restart the while loop
@@ -72,9 +112,7 @@ int main(int argc, char ** argv) {
             // USE pthread_rwlock_t
 
         } else if (pids[num_clients-1] == 0) { // Child contiinues processing while loop 
-
-            connectClientToSharedMem(fd1, fd2);
-
+            
             client_t* client = client_setup(client_id);
             client_processing(client); // Loops
 
@@ -89,57 +127,6 @@ int main(int argc, char ** argv) {
     }
     shm_unlink("/messagesregion");
     return 0;
-}
-
-
-void setupSharedMem(int *fd1, int *fd2) {
-
-    //Create shared memory
-    *fd1 = shm_open("/messagesregion", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
-    if (*fd1 == -1) {
-        printf("Error: shm_open\n");
-        exit(0);
-    }
-    *fd2 = shm_open("/countsregion", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
-    if (*fd2 == -1) {
-        printf("Error: shm_open\n");
-        exit(0);
-    }
-
-    //Expand to meet the desirable size
-    if (ftruncate(*fd1, NUMCHANNELS*sizeof(msgnode_t)) == -1) {
-        printf("Error: ftruncate\n");
-        exit(0);
-    }
-    if (ftruncate(*fd2, NUMCHANNELS*sizeof(int)) == -1) {
-        printf("Error: ftruncate\n");
-        exit(0);
-    }
-
-    messages = mmap(NULL, NUMCHANNELS*sizeof(msgnode_t), PROT_READ | PROT_WRITE, MAP_SHARED, *fd1, 0);
-    if (messages == MAP_FAILED) {
-        printf("Error\n");
-        exit(0);
-    }
-    messages_counts = mmap(NULL, sizeof(NUMCHANNELS*sizeof(int)), PROT_READ | PROT_WRITE, MAP_SHARED, *fd2, 0);
-    if (messages_counts == MAP_FAILED) {
-        printf("Error\n");
-        exit(0);
-    }
-}
-
-
-void connectClientToSharedMem(int fd1, int fd2) {
-    messages = mmap(messages_array, sizeof(messages_array), PROT_READ | PROT_WRITE, MAP_SHARED, fd1, 0);
-    if (messages == MAP_FAILED) {
-        printf("Error\n");
-        exit(0);
-    }
-    messages_counts = mmap(messages_counts_array, sizeof(messages_counts_array), PROT_READ | PROT_WRITE, MAP_SHARED, fd2, 0);
-    if (messages_counts == MAP_FAILED) {
-        printf("Error\n");
-        exit(0);
-    }
 }
 
 
@@ -187,12 +174,12 @@ void startServer(int argc, char ** argv) {
 
     // Initalise message lists
     for (int i = 0; i < NUMCHANNELS; i++) {
-        messages[i] = NULL;
+        messages_array[i] = NULL;
     }
 
     // Initalise array containing counts of all the messages sent to channels
     for (int i = 0; i < NUMCHANNELS; i++) {
-        messages_counts[i] = 0;
+        messages_counts_array[i] = 0;
     }
 }
 
@@ -255,7 +242,6 @@ void client_processing (client_t* client) {
         int true_neg_one = 0;
 
         decode_command(client, command, &channel_id, message, &true_neg_one);
-        //subscribe(channel_id, client);
 
         // Handle commands
         if (strcmp(command, "SUB") == 0) {
@@ -263,7 +249,6 @@ void client_processing (client_t* client) {
 
         } else if (strcmp(command, "CHANNELS") == 0) {
             channels(client);
-            printf("TEST OUT"); fflush(stdout);
 
         } else if (strcmp(command, "UNSUB") == 0 && (channel_id != -1 || true_neg_one == 1)) {
             unsubscribe(channel_id, client);
@@ -378,16 +363,14 @@ void subscribe(int channel_id, client_t *client) {
 
 void channels(client_t *client) {
     char return_msg[MAXDATASIZE];
-    strcpy(return_msg, "");
+
     for (int channel_id = 0; channel_id < NUMCHANNELS; channel_id++) {
         if (client->channels[channel_id].subscribed == 1) {
-            printf("TEST1\n"); fflush(stdout);
-            sprintf(buf, "%d\t%ld\t%d\t%d\n", channel_id, (long)messages_counts[channel_id],
-                client->channels[channel_id].read, get_number_unread_messages(channel_id, client));
-            strcat(return_msg, buf);
+            sprintf(return_msg, "%d\t%d\t%d\t%d\n", channel_id, 
+                *messages_counts[channel_id], client->channels[channel_id].read, 
+                get_number_unread_messages(channel_id, client));
         }
     }
-    printf("TEST2"); fflush(stdout);
     if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
         perror("send");
     }
@@ -504,7 +487,6 @@ void handleSIGINT(int _) {
     // Kill extra process first
     // Close everything in pids[] array
     shm_unlink("/messagesregion");
-    shm_unlink("/countsregion");
 
     // Dynamically allocated memory
     // Free messages

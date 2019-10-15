@@ -4,7 +4,7 @@ all: clean server client
 # Target to compile server
 server:
 	mkdir -p build
-	gcc -I include src/server.c -o build/server -Wall
+	gcc -I include src/server.c -o build/server -lrt -Wall
 
 # Target to compile client
 client: 
