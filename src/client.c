@@ -24,7 +24,6 @@ int is_livefeed = 0;
 
 // Receiving data
 int numbytes;  
-char buf[MAXDATASIZE];
 
 //Threading
 int next_thread_count = 0;
@@ -43,6 +42,7 @@ int main(int argc, char ** argv) {
     // Command components
     char command[COMMANDSIZE];
     char original_command[COMMANDSIZE];
+    char buf[MAXDATASIZE];
     int channel_id;
     int rc;
 
@@ -114,6 +114,7 @@ int main(int argc, char ** argv) {
 void startClient(int argc, char ** argv) {
     // Set the client's port number
     int port_number = setClientPort(argc, argv);
+    char buf[MAXDATASIZE];
 
     if ((he=gethostbyname(argv[1])) == NULL) {  // Get the server info
 		herror("gethostbyname");
@@ -184,6 +185,7 @@ void *nextThreadFunc(void *channel) {
     // Send the command
     char command[100];
     long channel_id = (long)channel;
+    char buf[MAXDATASIZE];
 
     if (channel_id == -1) {
         sprintf(command, "NEXT");
@@ -209,6 +211,7 @@ void *nextThreadFunc(void *channel) {
 void *livefeedThreadFunc(void *channel) {
     char command[100];
     long channel_id = (long)channel;
+    char buf[MAXDATASIZE];
 
     if (channel_id == -1) {
         sprintf(command, "NEXT");
@@ -232,7 +235,7 @@ void *livefeedThreadFunc(void *channel) {
             break;
         }
 
-        sleep(1);
+        sleep(0.5);
     }
     livefeed_thread_count--;
     pthread_exit(NULL);
