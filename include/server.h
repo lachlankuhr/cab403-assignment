@@ -44,6 +44,6 @@ client_t* client_setup(int client_id);
 
 void client_processing (client_t *client);
 
-void setupSharedMem(int *fd1, int *fd2);
+void setupSharedMem();
 
-void connectClientToSharedMem(int fd1, int fd2);
+void connectClientToSharedMem();
