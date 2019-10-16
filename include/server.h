@@ -16,7 +16,7 @@ void next(client_t *client);
 void nextChannel(int channel_id, client_t *client);
 
 /* Send MSG to CHANNEL from CLIENT */
-msgnode_t* sendMsg(int channel_id, msg_t *msg, client_t *client);
+void sendMsg(int channel_id, client_t *client, char *message);
 
 /* Disconnect CLIENT from the server */
 int bye(client_t *client);

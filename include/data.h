@@ -17,7 +17,6 @@ struct msg {
 /* node of hash table */
 typedef struct msg_node msgnode_t;
 struct msg_node {
-    //char* key;
     msg_t *msg;
     msgnode_t *next;
 };
@@ -39,4 +38,4 @@ struct client {
 };
 
 // Add message to the linked list
-msgnode_t * node_add(msgnode_t *head, msg_t *message);
+msgnode_t *node_add(msgnode_t *head, msg_t *message);

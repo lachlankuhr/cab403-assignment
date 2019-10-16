@@ -84,7 +84,6 @@ int main(int argc, char ** argv) {
         }
     }
     shm_unlink("/messagesregion");
-    shm_unlink("/countsregion");
     return 0;
 }
 
@@ -435,15 +434,15 @@ void nextChannel(int channel_id, client_t* client) {
 }
 
 
-void sendMsg(int channel_id, client_t *client, char* message) {
+void sendMsg(int channel_id, client_t *client, char *message) {
     // Check for invalid channel
     char return_msg[MAXDATASIZE];
 
     messages_counts[channel_id] += 1;
-    msg_t *msg_struct = (msg_t *)malloc(sizeof(msg_t));
-    msg_struct->string = message;
-    msg_struct->user = client->id;
-    msg_struct->time = time(NULL);
+    msg_t msg;
+    msg.string = message;
+    msg.user = client->id;
+    msg.time = time(NULL);
 
     if (channel_id < 0 || channel_id > 255) {
         sprintf(return_msg, "Invalid channel: %d\n", channel_id);
@@ -453,7 +452,7 @@ void sendMsg(int channel_id, client_t *client, char* message) {
     }
 
     // Construct the node for the linked list
-    msgnode_t *newhead = node_add(&messages[channel_id], msg_struct);
+    msgnode_t *newhead = node_add(&messages[channel_id], &msg);
 
     if (newhead == NULL) {
         printf("Memory allocation error");
