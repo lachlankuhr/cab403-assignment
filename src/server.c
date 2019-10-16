@@ -80,7 +80,7 @@ int main(int argc, char ** argv) {
         } else {
             // Fork failed
             printf("fork() failed\n");
-            return -1; // TODO: Consistent failure error handling everywhere
+            return -1;
         }
     }
     shm_unlink("/messagesregion");
@@ -419,9 +419,7 @@ void nextChannel(int channel_id, client_t* client) {
         sprintf(return_msg, "Not subscribed to channel %d\n", channel_id);
     
     } else {
-        printf("in mssage thing\n"); fflush(stdout);
         message_to_read = read_message(channel_id, client);
-        printf("mssg to read: %s\n", message_to_read->string); fflush(stdout);
         if (message_to_read == NULL) {
             return_msg[0] = 0;
         } else {
@@ -494,6 +492,8 @@ void handleSIGINT(int _) {
     shm_unlink("/messagsregion");
     shm_unlink("/countsregion");
 
+    // STILL CURRENTLY SEG DUMPS ON EXIT
+
     // Dynamically allocated memory
     // Free messages
     for (int i = 0; i < NUMCHANNELS; i++) {
@@ -560,7 +560,6 @@ msg_t* get_next_message(int channel_id, client_t *client) {
         return NULL;
     }
     while (curr_head->next != last_read) {
-        printf("STUCK"); fflush(stdout);
         curr_head = curr_head->next;
     }
     return(curr_head->msg);
