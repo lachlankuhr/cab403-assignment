@@ -18,6 +18,8 @@
 
 #define BACKLOG 10     // How many pending connections queue will hold
 #define MAXDATASIZE 30000
+#define MAXMESSAGES 1000
+#define MAXMESSAGELENGTH 1024
 #define NUMCHANNELS 255
 #define MAXCLIENTS 10
 
@@ -28,7 +30,7 @@ msgnode_t *messages;
 int *messages_counts;
 int smfd1;
 int smfd2;
-
+key_t test_key = 1;
 
 int main(int argc, char ** argv) {
     // Setup the signal handling for SIGINT signal
@@ -91,7 +93,7 @@ int main(int argc, char ** argv) {
 
 void setupSharedMem() {
 
-    size_t size1 = NUMCHANNELS*sizeof(msgnode_t);
+    size_t size1 = NUMCHANNELS*sizeof(msgnode_t)+MAXMESSAGES*sizeof(msg_t)+MAXMESSAGELENGTH*MAXMESSAGES;
     size_t size2 = NUMCHANNELS*sizeof(int);
 
     // Create a shared memory objects
@@ -220,7 +222,7 @@ void client_processing (client_t* client) {
     while (run) {
         // Wait for incoming commands
         // Reset the variables
-        char* message = (char*)malloc(MAXDATASIZE);
+        char* message = (char*)mmap(NULL, MAXMESSAGELENGTH, PROT_READ | PROT_WRITE, MAP_SHARED, smfd1, 0);//malloc(MAXDATASIZE);
         channel_id = -1;
 
         // Receive command
@@ -235,6 +237,7 @@ void client_processing (client_t* client) {
         int true_neg_one = 0;
 
         decode_command(client, command, &channel_id, message, &true_neg_one);
+        //printf("%p\n", message);
 
         // Handle commands
         if (strcmp(command, "SUB") == 0) {
@@ -438,10 +441,12 @@ void sendMsg(int channel_id, client_t *client, char* message) {
     char return_msg[MAXDATASIZE];
 
     messages_counts[channel_id] += 1;
-    msg_t *msg_struct = (msg_t *)malloc(sizeof(msg_t));
+    msg_t *msg_struct = (msg_t *)mmap(NULL, sizeof(msg_t), PROT_READ | PROT_WRITE, MAP_SHARED, smfd1, 0);//malloc(sizeof(msg_t));
     msg_struct->string = message;
     msg_struct->user = client->id;
     msg_struct->time = time(NULL);
+
+    printf("%d\n", msg_struct->user);
 
     if (channel_id < 0 || channel_id > 255) {
         sprintf(return_msg, "Invalid channel: %d\n", channel_id);
@@ -452,6 +457,7 @@ void sendMsg(int channel_id, client_t *client, char* message) {
 
     // Construct the node for the linked list
     msgnode_t *newhead = node_add(&messages[channel_id], msg_struct);
+    printf("%d\n", newhead->msg->user);
 
     if (newhead == NULL) {
         printf("Memory allocation error");
@@ -520,7 +526,7 @@ void handleSIGINT(int _) {
 
 msgnode_t * node_add(msgnode_t *head, msg_t *message) {
     // create new node to add to list
-    msgnode_t *new = (msgnode_t *)malloc(sizeof(msgnode_t));
+    msgnode_t *new = (msgnode_t *)mmap(NULL, sizeof(msgnode_t), PROT_READ | PROT_WRITE, MAP_SHARED, smfd1, 0);//malloc(sizeof(msgnode_t));
     if (new == NULL) {
         return NULL;
     }
@@ -556,7 +562,7 @@ msg_t* read_message(int channel_id, client_t* client) {
 msg_t* get_next_message(int channel_id, client_t *client) {
     msgnode_t* last_read = client->read_msg[channel_id]; // current last read message
     msgnode_t* curr_head = &messages[channel_id]; // current head, need to keep moving it back
-    if (&curr_head == &last_read) {
+    if (curr_head == last_read) {
         return NULL;
     }
     while (curr_head->next != last_read) {
