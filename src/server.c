@@ -33,9 +33,6 @@ msg_t *messages_msg;
 int *messages_counts;
 int smfd1, smfd2;
 
-// Keep track of how many messages were sent in total 
-int message_num = 0;
-
 int main(int argc, char ** argv) {
     // Setup the signal handling for SIGINT signal
     signal(SIGINT, handleSIGINT);
@@ -61,23 +58,16 @@ int main(int argc, char ** argv) {
         num_clients++;
 
         pids[num_clients-1] = fork();
-        if (pids[num_clients-1] > 0) { // Parent looks for new connections
-            // Parent able to do nothingish and restart the while loop
-            // Currently multiple clients can connect but they act fully independently
-
-            // TODO: ALLOW MULTIPLE CLIENTS (10 max I believe)
-
-            // Shared memory message board
-            
-            // Critical selection problem  (lec 5 reuse reader writer solution)
-                // Sending message is a writer, receiving is a reader
-            // Use mutexes, avoid global locks
-            // USE pthread_rwlock_t
+        if (pids[num_clients-1] > 0) {
+            // Parent continues to look for new connections in above while loop section.
 
         } else if (pids[num_clients-1] == 0) { // Child contiinues processing while loop 
             
             client_t* client = client_setup(client_id);
             client_processing(client); // Loops
+
+            // Critical selection problem  (lec 5 reuse reader writer solution)
+            // Use mutexes, avoid global locks. Use pthread_rwlock_t
 
             // TODO: Tell parent of termination and/or figure out logic to update
             // the pids array that doesn't leave bubbles when the 'not-last' process stops
@@ -88,8 +78,8 @@ int main(int argc, char ** argv) {
             return -1;
         }
     }
-    shm_unlink("/messagesregion");
-    shm_unlink("/countsregion");
+    shm_unlink("/messages");
+    shm_unlink("/counts");
     return 0;
 }
 
@@ -99,15 +89,15 @@ void setupSharedMem() {
     size_t size1 = NUMCHANNELS*sizeof(msgnode_t*);
     size_t size2 = MAXMESSAGES*sizeof(msgnode_t);
     size_t size3 = MAXMESSAGES*sizeof(msg_t);
-    size_t size4 = NUMCHANNELS*sizeof(int);
+    size_t size4 = (NUMCHANNELS+1)*sizeof(int);
 
     // Create a shared memory objects
-    smfd1 = shm_open("/messagesregion", O_RDWR | O_CREAT, 0600);
-    smfd2 = shm_open("/countsregion", O_RDWR | O_CREAT, 0600);
+    smfd1 = shm_open("/messages", O_RDWR | O_CREAT, 0600);
+    smfd2 = shm_open("/counts", O_RDWR | O_CREAT, 0600);
 
     // Resize to fit
     ftruncate(smfd1, size1 + size2 + size3);
-    ftruncate(smfd2, size2);
+    ftruncate(smfd2, size4);
 
     // Map objects
     messages = mmap(NULL, size1, PROT_READ | PROT_WRITE, MAP_SHARED, smfd1, 0); // Must be in SHM (by experimentation)
@@ -119,8 +109,8 @@ void setupSharedMem() {
     for (int i = 0; i < NUMCHANNELS; i++) {
         messages[i] = NULL;
     }
-    // Initalise counts of messages sent to channels
-    for (int i = 0; i < NUMCHANNELS; i++) {
+    // Initalise counts of messages sent to channels. Last index is total.
+    for (int i = 0; i < NUMCHANNELS+1; i++) {
         messages_counts[i] = 0;
     }
 }
@@ -249,7 +239,7 @@ void client_processing (client_t* client) {
             }
 
         } else if (strcmp(command, "SEND") == 0) {
-            message_num += 1; 
+            messages_counts[NUMCHANNELS]++; 
             // Increase
             sendMsg(channel_id, client, message);
 
@@ -433,12 +423,10 @@ void sendMsg(int channel_id, client_t *client, char* message) {
     char return_msg[MAXDATASIZE];
 
     messages_counts[channel_id] += 1;
-    msg_t *msg_struct = &messages_msg[message_num];
+    msg_t *msg_struct = &messages_msg[messages_counts[NUMCHANNELS]];
     memcpy(msg_struct->string, message, MAXMESSAGELENGTH);
     msg_struct->user = client->id;
     msg_struct->time = time(NULL);
-
-    printf("%d\n", msg_struct->user);
 
     if (channel_id < 0 || channel_id > 255) {
         sprintf(return_msg, "Invalid channel: %d\n", channel_id);
@@ -479,15 +467,15 @@ void handleSIGINT(int _) {
     // Kill extra process first
     // Close everything in pids[] array
 
-    // Unmap the object
-    munmap(messages, NUMCHANNELS*sizeof(msgnode_t));
+    // Unmap and close shared memory
+    munmap(messages, NUMCHANNELS*sizeof(msgnode_t*));
+    munmap(messages_nodes, MAXMESSAGES*sizeof(msgnode_t));
+    munmap(messages_msg, MAXMESSAGES*sizeof(msg_t));
     munmap(messages_counts, NUMCHANNELS*sizeof(int));
-    // Close the shared memory object handle
     close(smfd1);
     close(smfd2);
-    // Remove the shared memory object
-    shm_unlink("/messagsregion");
-    shm_unlink("/countsregion");
+    shm_unlink("/messages");
+    shm_unlink("/counts");
 
     // STILL CURRENTLY SEG DUMPS ON EXIT
 
@@ -517,7 +505,7 @@ void handleSIGINT(int _) {
 
 msgnode_t* node_add(msgnode_t *head, msg_t *message) {
     // create new node to add to list
-    msgnode_t *new = &messages_nodes[message_num];
+    msgnode_t *new = &messages_nodes[messages_counts[NUMCHANNELS]];
     if (new == NULL) {
         return NULL;
     }

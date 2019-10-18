@@ -10,7 +10,7 @@
 #include "client.h"
 #include "data.h"
 
-#define MAXDATASIZE 2048 // 1024 is too low to receive longer messages
+#define MAXDATASIZE 30000 // Needs to be high
 #define COMMANDSIZE 50
 #define MAX_THREADS 5
 
