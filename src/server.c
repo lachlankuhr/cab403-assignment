@@ -11,12 +11,10 @@
 #include <sys/wait.h> 
 #include <unistd.h>
 #include <fcntl.h> 
-#include "server.h"
 #include <sys/mman.h>
-#include <sys/ipc.h>
-#include <sys/shm.h>
+#include "server.h"
 
-#define BACKLOG 10     // How many pending connections queue will hold
+#define BACKLOG 10              // How many pending connections queue will hold
 #define MAXDATASIZE 30000
 #define MAXMESSAGES 1000
 #define MAXMESSAGELENGTH 1024
@@ -26,31 +24,32 @@
 
 // Global variables
 int sockfd, new_fd;       // Listen on sock_fd, new connection on new_fd
-char buf[MAXDATASIZE];
-msgnode_t **messages;
-msgnode_t *messages_nodes;
-msg_t *messages_msg; 
-int *messages_counts;
-int smfd1, smfd2;
+char buf[MAXDATASIZE];    // Craps itself if I try to make this local...
+pid_t pids[MAXCLIENTS];
+int num_clients = 0;
 
-int main(int argc, char ** argv) {
+// Shared memory address shortcut pointers
+msgnode_t **messages;       // Array of pointers to msg_t node heads
+msgnode_t *messages_nodes;  // Array of all msg_t nodes
+msg_t *messages_msg;        // Array of all msg_t messages
+int *messages_counts;       // Array of msg counts by channel, last index is total
+int smfd1, smfd2;           // SHM handle IDs
+
+int main(int argc, char **argv) {
     // Setup the signal handling for SIGINT signal
     signal(SIGINT, handleSIGINT);
     setupSharedMem();
     
     // Start the server
     startServer(argc, argv);
-    int client_id = 0;
     struct sockaddr_in client_addr;
     socklen_t sin_size;
-
-    pid_t pids[MAXCLIENTS];
-    int num_clients = 0;
+    int client_id = 0;
 
     while (1) {
         // Keeep checking for new connections
         sin_size = sizeof(struct sockaddr_in);
-		if ((new_fd = accept(sockfd, (struct sockaddr *)&client_addr, &sin_size)) == -1) {
+		if ((new_fd = accept(sockfd, (struct sockaddr*)&client_addr, &sin_size)) == -1) {
 			perror("accept");
 		}
 		printf("Server: got connection from %s\n", inet_ntoa(client_addr.sin_addr));
@@ -63,7 +62,7 @@ int main(int argc, char ** argv) {
 
         } else if (pids[num_clients-1] == 0) { // Child contiinues processing while loop 
             
-            client_t* client = client_setup(client_id);
+            client_t *client = client_setup(client_id);
             client_processing(client); // Loops
 
             // Critical selection problem  (lec 5 reuse reader writer solution)
@@ -86,10 +85,10 @@ int main(int argc, char ** argv) {
 
 void setupSharedMem() {
 
-    size_t size1 = NUMCHANNELS*sizeof(msgnode_t*);
-    size_t size2 = MAXMESSAGES*sizeof(msgnode_t);
-    size_t size3 = MAXMESSAGES*sizeof(msg_t);
-    size_t size4 = (NUMCHANNELS+1)*sizeof(int);
+    size_t size1 = NUMCHANNELS * sizeof(msgnode_t*);
+    size_t size2 = MAXMESSAGES * sizeof(msgnode_t);
+    size_t size3 = MAXMESSAGES * sizeof(msg_t);
+    size_t size4 = (NUMCHANNELS+1) * sizeof(int);
 
     // Create a shared memory objects
     smfd1 = shm_open("/messages", O_RDWR | O_CREAT, 0600);
@@ -116,7 +115,7 @@ void setupSharedMem() {
 }
 
 
-void startServer(int argc, char ** argv) {
+void startServer(int argc, char **argv) {
     // Set the server port
     int port_number = setServerPort(argc, argv);
     struct sockaddr_in server_addr;
@@ -144,7 +143,7 @@ void startServer(int argc, char ** argv) {
     #endif
 
 	// Bind the socket to the end point
-	if (bind(sockfd, (struct sockaddr *)&server_addr, 
+	if (bind(sockfd, (struct sockaddr*)&server_addr, 
     sizeof(struct sockaddr)) == -1) {
 		perror("bind");
 		exit(-1);
@@ -160,8 +159,8 @@ void startServer(int argc, char ** argv) {
 }
 
 
-int setServerPort(int argc, char ** argv) {
-    int port_number = 12345;
+int setServerPort(int argc, char **argv) {
+    int port_number = 12345;                   // DON'T FORGET THIS IS HARDCODED
     if (argc > 1) {
         port_number = atoi(argv[1]);
     }
@@ -176,9 +175,10 @@ client_t* client_setup(int client_id) {
     new_client.socket = new_fd; // set socket
     for (int i = 0; i < NUMCHANNELS; i++) { // set subscribed channels
         new_client.channels[i].subscribed = 0;
+        new_client.channels[i].read = 0;
     }
     // Point client to new client
-    client_t* client = &new_client;
+    client_t *client = &new_client;
 
     // Respond to client with welcome and choose client ID
     char msg[1024] = "Welcome! Your client ID is ";
@@ -194,7 +194,7 @@ client_t* client_setup(int client_id) {
 }
 
 
-void client_processing (client_t* client) {
+void client_processing (client_t *client) {
     // What each process loops around while client active
     int channel_id;
     int run = 1;
@@ -203,7 +203,7 @@ void client_processing (client_t* client) {
     while (run) {
         // Wait for incoming commands
         // Reset the variables
-        char *message = (char*)mmap(NULL, MAXMESSAGELENGTH, PROT_READ | PROT_WRITE, MAP_SHARED, smfd1, 0);//malloc(MAXDATASIZE);
+        char message[MAXMESSAGELENGTH];
         channel_id = -1;
 
         // Receive command
@@ -218,7 +218,6 @@ void client_processing (client_t* client) {
         int true_neg_one = 0;
 
         decode_command(client, command, &channel_id, message, &true_neg_one);
-        //printf("%p\n", message);
 
         // Handle commands
         if (strcmp(command, "SUB") == 0) {
@@ -239,13 +238,12 @@ void client_processing (client_t* client) {
             }
 
         } else if (strcmp(command, "SEND") == 0) {
-            messages_counts[NUMCHANNELS]++; 
+            messages_counts[NUMCHANNELS]++; // Increments total message value stored at end of array
             // Increase
             sendMsg(channel_id, client, message);
 
         } else if (strcmp(command, "BYE") == 0 && channel_id == -1) {
             run = bye(client);
-            //TODO: Chop the process
 
         } else {
             if (strtok(command, "\n") != NULL) { // Important to prevent the no command entered and invalid command printing
@@ -366,7 +364,7 @@ void next(client_t *client) {
     for (int channel_id = 0; channel_id <  NUMCHANNELS; channel_id++) {
         if (client->channels[channel_id].subscribed == 1) {
             client_subscribed_to_any_channel = 1;
-            msg_t * message = get_next_message(channel_id, client); // just get and not move head forward
+            msg_t *message = get_next_message(channel_id, client); // just get and not move head forward
             if (message != NULL) { // could use short circuiting
                 if (message->time < min_time) {
                     min_time = message->time;
@@ -393,9 +391,9 @@ void next(client_t *client) {
 }
 
 
-void nextChannel(int channel_id, client_t* client) {
+void nextChannel(int channel_id, client_t *client) {
     char return_msg[MAXDATASIZE];
-    msg_t* message_to_read;
+    msg_t *message_to_read;
     
     if (channel_id < 0 || channel_id > 255) {
         sprintf(return_msg, "Invalid channel: %d\n", channel_id);
@@ -418,7 +416,7 @@ void nextChannel(int channel_id, client_t* client) {
 }
 
 
-void sendMsg(int channel_id, client_t *client, char* message) {
+void sendMsg(int channel_id, client_t *client, char *message) {
     // Check for invalid channel
     char return_msg[MAXDATASIZE];
 
@@ -457,6 +455,7 @@ void sendMsg(int channel_id, client_t *client, char* message) {
 int bye(client_t *client) {
     printf("Client disconnected.\n");
     close(client->socket); // Close socket on server side
+    kill(pids[client->id], SIGTERM);
     return 0; // Required to stop server signal
 }
 
@@ -465,32 +464,20 @@ void handleSIGINT(int _) {
     (void)_; // To stop the compiler complaining
 
     // Kill extra process first
-    // Close everything in pids[] array
+    for (int i; i < num_clients; i++) {
+        kill(pids[i], SIGTERM);
+    }
 
     // Unmap and close shared memory
-    munmap(messages, NUMCHANNELS*sizeof(msgnode_t*));
-    munmap(messages_nodes, MAXMESSAGES*sizeof(msgnode_t));
-    munmap(messages_msg, MAXMESSAGES*sizeof(msg_t));
-    munmap(messages_counts, NUMCHANNELS*sizeof(int));
+    munmap(messages, NUMCHANNELS * sizeof(msgnode_t*));
+    munmap(messages_nodes, MAXMESSAGES * sizeof(msgnode_t));
+    munmap(messages_msg, MAXMESSAGES * sizeof(msg_t));
+    munmap(messages_counts, NUMCHANNELS * sizeof(int));
     close(smfd1);
     close(smfd2);
     shm_unlink("/messages");
     shm_unlink("/counts");
 
-    // STILL CURRENTLY SEG DUMPS ON EXIT
-
-    // Dynamically allocated memory
-    // Free messages
-    for (int i = 0; i < NUMCHANNELS; i++) {
-        msgnode_t *head = messages[i];
-        while (head != NULL) {
-            msgnode_t *next = head->next;
-            free(head->msg->string); // free message text
-            free(head->msg); // free message struct
-            free(head); // free message node
-            head = next;
-        }
-    }
     // Clients should be freed automatically because they're stack variables
 
     printf("\nHandling the signal gracefully...\n"); 
