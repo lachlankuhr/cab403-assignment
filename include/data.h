@@ -2,6 +2,7 @@
 #include <stdbool.h>
 
 #define NUMCHANNELS 255
+#define MAXMESSAGELENGTH 1024
 
 /* messages
  * Messages are stored in a hash table
@@ -9,7 +10,7 @@
  */
 typedef struct msg msg_t;
 struct msg {
-    char* string; // String of message being sent
+    char string[MAXMESSAGELENGTH]; // String of message being sent
     int user; // User who sent the message
     time_t time; // time message was sent - important for distinguishing between messages channels
 };

@@ -23,14 +23,20 @@
 #define NUMCHANNELS 255
 #define MAXCLIENTS 10
 
+
 // Global variables
 int sockfd, new_fd;       // Listen on sock_fd, new connection on new_fd
 char buf[MAXDATASIZE];
-msgnode_t *messages;
+msgnode_t ** messages;
+msgnode_t * messages_nodes;
+msg_t * messages_msg; 
 int *messages_counts;
 int smfd1;
 int smfd2;
 key_t test_key = 1;
+
+// Keep track of how many messages were sent in total 
+int message_num = 0;
 
 int main(int argc, char ** argv) {
     // Setup the signal handling for SIGINT signal
@@ -106,12 +112,13 @@ void setupSharedMem() {
 
     // Map the object
     messages = mmap(NULL, size1, PROT_READ | PROT_WRITE, MAP_SHARED, smfd1, 0);
+    messages_nodes = mmap(NULL, 1000 * sizeof(msgnode_t), PROT_READ | PROT_WRITE, MAP_SHARED, smfd1, 0);
+    messages_msg = mmap(NULL, 1000 * sizeof(msg_t), PROT_READ | PROT_WRITE, MAP_SHARED, smfd1, 0);
     messages_counts = mmap(NULL, size2, PROT_READ | PROT_WRITE, MAP_SHARED, smfd2, 0);
 
     // Initalise message lists
     for (int i = 0; i < NUMCHANNELS; i++) {
-        messages[i].msg = NULL;
-        messages[i].next = NULL;
+        messages[i] = NULL;
     }
     // Initalise array containing counts of all the messages sent to channels
     for (int i = 0; i < NUMCHANNELS; i++) {
@@ -258,6 +265,7 @@ void client_processing (client_t* client) {
             }
 
         } else if (strcmp(command, "SEND") == 0) {
+            message_num += 1; 
             // Increase
             sendMsg(channel_id, client, message);
 
@@ -329,7 +337,7 @@ void subscribe(int channel_id, client_t *client) {
     } else {
         sprintf(return_msg, "Subscribed to channel %d.\n", channel_id);
         client->channels[channel_id].subscribed = 1;
-        client->read_msg[channel_id] = &messages[channel_id]; // last message in the channel - want to track read messages
+        client->read_msg[channel_id] = messages[channel_id]; // last message in the channel - want to track read messages
     }
 
     if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
@@ -441,8 +449,8 @@ void sendMsg(int channel_id, client_t *client, char* message) {
     char return_msg[MAXDATASIZE];
 
     messages_counts[channel_id] += 1;
-    msg_t *msg_struct = (msg_t *)mmap(NULL, sizeof(msg_t), PROT_READ | PROT_WRITE, MAP_SHARED, smfd1, 0);//malloc(sizeof(msg_t));
-    msg_struct->string = message;
+    msg_t *msg_struct = &messages_msg[message_num];
+    memcpy(msg_struct->string, message, MAXMESSAGELENGTH);
     msg_struct->user = client->id;
     msg_struct->time = time(NULL);
 
@@ -456,15 +464,15 @@ void sendMsg(int channel_id, client_t *client, char* message) {
     }
 
     // Construct the node for the linked list
-    msgnode_t *newhead = node_add(&messages[channel_id], msg_struct);
+    msgnode_t *newhead = node_add(messages[channel_id], msg_struct);
     printf("%d\n", newhead->msg->user);
 
     if (newhead == NULL) {
         printf("Memory allocation error");
         exit(EXIT_FAILURE);
     }
-    messages[channel_id] = *newhead;
-    printf("Sent to %d: %s\n", channel_id, messages[channel_id].msg->string);
+    messages[channel_id] = newhead;
+    printf("Sent to %d: %s\n", channel_id, messages[channel_id]->msg->string);
     // TODO: Fix "SEND -1 msg" printing this statement to the server (or any invalid channel)
     
     // Send back nothing because otherwise its blocking
@@ -503,7 +511,7 @@ void handleSIGINT(int _) {
     // Dynamically allocated memory
     // Free messages
     for (int i = 0; i < NUMCHANNELS; i++) {
-        msgnode_t* head = &messages[i];
+        msgnode_t* head = messages[i];
         while (head != NULL) {
             msgnode_t* next = head->next;
             free(head->msg->string); // free message text
@@ -526,7 +534,7 @@ void handleSIGINT(int _) {
 
 msgnode_t * node_add(msgnode_t *head, msg_t *message) {
     // create new node to add to list
-    msgnode_t *new = (msgnode_t *)mmap(NULL, sizeof(msgnode_t), PROT_READ | PROT_WRITE, MAP_SHARED, smfd1, 0);//malloc(sizeof(msgnode_t));
+    msgnode_t *new = &messages_nodes[message_num];
     if (new == NULL) {
         return NULL;
     }
@@ -541,7 +549,7 @@ msgnode_t * node_add(msgnode_t *head, msg_t *message) {
 msg_t* read_message(int channel_id, client_t* client) {
     
     msgnode_t *last_read = client->read_msg[channel_id]; // current last read message
-    msgnode_t *curr_head = &messages[channel_id]; // current head, need to keep moving it back
+    msgnode_t *curr_head = messages[channel_id]; // current head, need to keep moving it back
 
     if (&curr_head == &last_read) {
         return NULL;
@@ -561,7 +569,7 @@ msg_t* read_message(int channel_id, client_t* client) {
 
 msg_t* get_next_message(int channel_id, client_t *client) {
     msgnode_t* last_read = client->read_msg[channel_id]; // current last read message
-    msgnode_t* curr_head = &messages[channel_id]; // current head, need to keep moving it back
+    msgnode_t* curr_head = messages[channel_id]; // current head, need to keep moving it back
     if (curr_head == last_read) {
         return NULL;
     }
@@ -574,7 +582,7 @@ msg_t* get_next_message(int channel_id, client_t *client) {
 
 int get_number_unread_messages(int channel_id, client_t* client) {
     msgnode_t *last_read = client->read_msg[channel_id]; // current last read message
-    msgnode_t *curr_head = &messages[channel_id]; // current head, need to keep moving it back
+    msgnode_t *curr_head = messages[channel_id]; // current head, need to keep moving it back
     int number_unread = 0;
     if (curr_head == last_read) {
         return number_unread;
