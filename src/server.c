@@ -65,9 +65,6 @@ int main(int argc, char **argv) {
             client_t *client = client_setup(clients_active);
             client_processing(client); // Loops
 
-            // TODO: Tell parent of termination and/or figure out logic to update
-            // the pids array that doesn't leave bubbles when the 'not-last' process stops
-
         } else if (pids[clients_active] > 0) { 
             // Parent continues to look for new connections in above while loop section.
 
@@ -76,9 +73,7 @@ int main(int argc, char **argv) {
             printf("fork() failed\n");
             return -1;
         }
-    }
-    shm_unlink("/messages");
-    shm_unlink("/counts");
+    } // Can't leave while loop without SIGINT
     return 0;
 }
 
