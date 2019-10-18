@@ -1,5 +1,7 @@
 #include <data.h>
 
+// Setup methods //
+
 /* Starts the server to listen on the specified port number */
 void startServer(int argc, char **argv);
 
@@ -13,13 +15,16 @@ void setupSharedMem();
 void handleSIGINT();
 
 /* Client command paring */
-void decode_command(client_t *client, char *command, int *channel_id, char *message, int *true_neg_one);
+void decode_command(client_t *client, char *command, int *channel_id, char *message);
 
 /* Setup a new client object after connection */
 client_t* client_setup(int client_id);
 
 /* Loop for each client process */
 void client_processing (client_t *client);
+
+
+// Action methods //
 
 /* Subscribe CLIENT to CHANNEL_ID */
 void subscribe(int channel_id, client_t *client);
@@ -41,6 +46,12 @@ void sendMsg(int channel_id, client_t *client, char *message);
 
 /* Disconnect CLIENT from the server */
 int bye(client_t *client);
+
+
+// Data structure methods //
+
+/* Add message to the linked list */
+msgnode_t* node_add(msgnode_t *head, msg_t *message);
 
 /* Read message in specific channel and move the client read head */
 msg_t* read_message(int channel_id, client_t *client);

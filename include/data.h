@@ -4,10 +4,12 @@
 #define NUMCHANNELS 255
 #define MAXMESSAGELENGTH 1024
 
-/* messages
- * Messages are stored in a hash table
- * Each bin in the hash table is a channel 
+/* Messages
+ * Messages are stored in a linked list
+ * Each bin in the initial list is the head of a channel 
  */
+
+/* Message information for within nodes */
 typedef struct msg msg_t;
 struct msg {
     char string[MAXMESSAGELENGTH]; // String of message being sent
@@ -15,20 +17,21 @@ struct msg {
     time_t time; // time message was sent - important for distinguishing between messages channels
 };
 
-/* node of hash table */
+/* Node of linked list */
 typedef struct msg_node msgnode_t;
 struct msg_node {
     msg_t *msg;
     msgnode_t *next;
 };
 
-/* node of hash table */
+/* Channel subscription information for within client array */
 typedef struct client_channel client_channel_t;
 struct client_channel {
     int subscribed;
     int read;
 };
 
+/* Client information data holder */
 typedef struct client client_t;
 struct client {
     int id; // user's ID
@@ -38,5 +41,6 @@ struct client {
     // read_msg is initialised when client joins a channel.
 };
 
-// Add message to the linked list
-msgnode_t* node_add(msgnode_t *head, msg_t *message);
+
+
+

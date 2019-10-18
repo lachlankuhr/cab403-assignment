@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include <fcntl.h> 
 #include <sys/mman.h>
+#include <pthread.h> 
 #include "server.h"
 
 #define BACKLOG 10              // How many pending connections queue will hold
@@ -19,14 +20,15 @@
 #define MAXMESSAGES 1000
 #define MAXMESSAGELENGTH 1024
 #define NUMCHANNELS 255
-#define MAXCLIENTS 10
+#define MAXCLIENTS 20
 
 
 // Global variables
 int sockfd, new_fd;       // Listen on sock_fd, new connection on new_fd
 char buf[MAXDATASIZE];    // Craps itself if I try to make this local...
 pid_t pids[MAXCLIENTS];
-int num_clients = 0;
+int clients_status[MAXCLIENTS];
+int clients_active = -1;
 
 // Shared memory address shortcut pointers
 msgnode_t **messages;       // Array of pointers to msg_t node heads
@@ -34,6 +36,8 @@ msgnode_t *messages_nodes;  // Array of all msg_t nodes
 msg_t *messages_msg;        // Array of all msg_t messages
 int *messages_counts;       // Array of msg counts by channel, last index is total
 int smfd1, smfd2;           // SHM handle IDs
+pthread_rwlock_t rwlock_messages;
+pthread_rwlock_t rwlock_counts;
 
 int main(int argc, char **argv) {
     // Setup the signal handling for SIGINT signal
@@ -44,7 +48,6 @@ int main(int argc, char **argv) {
     startServer(argc, argv);
     struct sockaddr_in client_addr;
     socklen_t sin_size;
-    int client_id = 0;
 
     while (1) {
         // Keeep checking for new connections
@@ -53,23 +56,20 @@ int main(int argc, char **argv) {
 			perror("accept");
 		}
 		printf("Server: got connection from %s\n", inet_ntoa(client_addr.sin_addr));
-        client_id++;
-        num_clients++;
+        
+        clients_active++;
+        pids[clients_active] = fork();
+        if (pids[clients_active] == 0) {
 
-        pids[num_clients-1] = fork();
-        if (pids[num_clients-1] > 0) {
-            // Parent continues to look for new connections in above while loop section.
-
-        } else if (pids[num_clients-1] == 0) { // Child contiinues processing while loop 
-            
-            client_t *client = client_setup(client_id);
+            clients_status[clients_active] = 1;
+            client_t *client = client_setup(clients_active);
             client_processing(client); // Loops
-
-            // Critical selection problem  (lec 5 reuse reader writer solution)
-            // Use mutexes, avoid global locks. Use pthread_rwlock_t
 
             // TODO: Tell parent of termination and/or figure out logic to update
             // the pids array that doesn't leave bubbles when the 'not-last' process stops
+
+        } else if (pids[clients_active] > 0) { 
+            // Parent continues to look for new connections in above while loop section.
 
         } else {
             // Fork failed
@@ -112,6 +112,10 @@ void setupSharedMem() {
     for (int i = 0; i < NUMCHANNELS+1; i++) {
         messages_counts[i] = 0;
     }
+
+    pthread_rwlock_init(&rwlock_messages, NULL);
+    pthread_rwlock_init(&rwlock_counts, NULL);
+
 }
 
 
@@ -154,6 +158,10 @@ void startServer(int argc, char **argv) {
 		perror("listen");
 		exit(0);
 	}
+
+    for (int i = 0; i < clients_active; i++) {
+        clients_status[i] = 0;
+    }
     
 	printf("Server is listening on port: %i.\n", port_number);
 }
@@ -194,7 +202,7 @@ client_t* client_setup(int client_id) {
 }
 
 
-void client_processing (client_t *client) {
+void client_processing(client_t *client) {
     // What each process loops around while client active
     int channel_id;
     int run = 1;
@@ -215,9 +223,8 @@ void client_processing (client_t *client) {
             break;
         }
         char *command = buf;
-        int true_neg_one = 0;
 
-        decode_command(client, command, &channel_id, message, &true_neg_one);
+        decode_command(client, command, &channel_id, message);
 
         // Handle commands
         if (strcmp(command, "SUB") == 0) {
@@ -226,20 +233,17 @@ void client_processing (client_t *client) {
         } else if (strcmp(command, "CHANNELS") == 0) {
             channels(client);
 
-        } else if (strcmp(command, "UNSUB") == 0 && (channel_id != -1 || true_neg_one == 1)) {
+        } else if (strcmp(command, "UNSUB") == 0 && channel_id != -1) {
             unsubscribe(channel_id, client);
 
         } else if (strcmp(command, "NEXT") == 0) {
-            if (channel_id == -1 && true_neg_one == 0) {
+            if (channel_id == -1) {
                 next(client);
             } else {
                 nextChannel(channel_id, client);
-                // TODO: No response to client when an invalid channel is used because -1 defaults to the other next command
             }
 
         } else if (strcmp(command, "SEND") == 0) {
-            messages_counts[NUMCHANNELS]++; // Increments total message value stored at end of array
-            // Increase
             sendMsg(channel_id, client, message);
 
         } else if (strcmp(command, "BYE") == 0 && channel_id == -1) {
@@ -256,7 +260,7 @@ void client_processing (client_t *client) {
 }
 
 
-void decode_command(client_t *client, char *command, int *channel_id, char *message, int *true_neg_one) {
+void decode_command(client_t *client, char *command, int *channel_id, char *message) {
     char original[MAXDATASIZE];
     strcpy(original, command);
 
@@ -270,11 +274,6 @@ void decode_command(client_t *client, char *command, int *channel_id, char *mess
     char *sep = strtok(command, " ");   // Separate command from arguments
     sep = strtok(NULL, " ");
 
-    // This weird check is needed and I don't know why
-    // SUB -1 works, NEXT -2 works, but NEXT -1 errors out and sep becomes NULL
-    // true_neg_one is set in the larger if statement normally
-    if (sep == NULL && strcmp(original, "NEXT -1") == 0) *true_neg_one = 1;
-
     if (sep != NULL) {  // Get channel ID
         // Reset errno to 0 before call 
         errno = 0;
@@ -283,9 +282,8 @@ void decode_command(client_t *client, char *command, int *channel_id, char *mess
         char *endptr = NULL;
         *channel_id = strtol(sep, &endptr, 10);
         
-        if (*channel_id == -1) *true_neg_one = 1;
-
-        if (sep == endptr || errno == EINVAL || (errno != 0 && *channel_id == 0) || (errno == 0 && sep && *endptr != 0)) {
+        if (sep == endptr || errno == EINVAL || (errno != 0 && *channel_id == 0) 
+        || (errno == 0 && sep && *endptr != 0) || errno == ERANGE) {
             *channel_id = -1;
         }
         sep = strtok(NULL, ""); // this SHOULD be "" instead of " ". It gets the rest of the message.
@@ -309,7 +307,10 @@ void subscribe(int channel_id, client_t *client) {
     } else {
         sprintf(return_msg, "Subscribed to channel %d.\n", channel_id);
         client->channels[channel_id].subscribed = 1;
+
+        pthread_rwlock_rdlock(&rwlock_messages);
         client->read_msg[channel_id] = messages[channel_id]; // last message in the channel - want to track read messages
+        pthread_rwlock_unlock(&rwlock_messages);
     }
 
     if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
@@ -324,8 +325,11 @@ void channels(client_t *client) {
     
     for (int channel_id = 0; channel_id < NUMCHANNELS; channel_id++) {
         if (client->channels[channel_id].subscribed == 1) {
+
+            pthread_rwlock_wrlock(&rwlock_counts);
             sprintf(buf, "%d\t%ld\t%d\t%d\n", channel_id, (long)messages_counts[channel_id],
                 client->channels[channel_id].read, get_number_unread_messages(channel_id, client));
+            pthread_rwlock_unlock(&rwlock_counts);
             strcat(return_msg, buf);
         }
     }
@@ -364,7 +368,12 @@ void next(client_t *client) {
     for (int channel_id = 0; channel_id <  NUMCHANNELS; channel_id++) {
         if (client->channels[channel_id].subscribed == 1) {
             client_subscribed_to_any_channel = 1;
+
+            pthread_rwlock_wrlock(&rwlock_messages);
             msg_t *message = get_next_message(channel_id, client); // just get and not move head forward
+            pthread_rwlock_unlock(&rwlock_messages);
+            
+            pthread_rwlock_rdlock(&rwlock_messages);
             if (message != NULL) { // could use short circuiting
                 if (message->time < min_time) {
                     min_time = message->time;
@@ -372,6 +381,7 @@ void next(client_t *client) {
                     next_channel = channel_id;
                 }
             }
+            pthread_rwlock_unlock(&rwlock_messages);
         }
     }
 
@@ -382,8 +392,10 @@ void next(client_t *client) {
         return_msg[0] = 0; // empty string
     
     } else {
+        pthread_rwlock_wrlock(&rwlock_messages);
         read_message(next_channel, client); // move head foward
-        sprintf(return_msg, "%d:%s\n", next_channel, next_msg->string); // TODO: insert channel ID prefix as in SPEC
+        pthread_rwlock_unlock(&rwlock_messages);
+        sprintf(return_msg, "%d:%s\n", next_channel, next_msg->string);  
     }
     if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
         perror("send");
@@ -402,12 +414,14 @@ void nextChannel(int channel_id, client_t *client) {
         sprintf(return_msg, "Not subscribed to channel %d\n", channel_id);
     
     } else {
+        pthread_rwlock_wrlock(&rwlock_messages);
         message_to_read = read_message(channel_id, client);
         if (message_to_read == NULL) {
             return_msg[0] = 0;
         } else {
             sprintf(return_msg, "%d:%s\n", channel_id, message_to_read->string); 
         }
+        pthread_rwlock_unlock(&rwlock_messages);
     }
 
     if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
@@ -419,12 +433,19 @@ void nextChannel(int channel_id, client_t *client) {
 void sendMsg(int channel_id, client_t *client, char *message) {
     // Check for invalid channel
     char return_msg[MAXDATASIZE];
+    
+    // Increment channel ID count and total count
+    pthread_rwlock_rdlock(&rwlock_counts);
+    messages_counts[channel_id]++;
+    messages_counts[NUMCHANNELS]++;
+    pthread_rwlock_unlock(&rwlock_counts);
 
-    messages_counts[channel_id] += 1;
+    pthread_rwlock_wrlock(&rwlock_messages);
     msg_t *msg_struct = &messages_msg[messages_counts[NUMCHANNELS]];
     memcpy(msg_struct->string, message, MAXMESSAGELENGTH);
     msg_struct->user = client->id;
     msg_struct->time = time(NULL);
+    pthread_rwlock_unlock(&rwlock_messages);
 
     if (channel_id < 0 || channel_id > 255) {
         sprintf(return_msg, "Invalid channel: %d\n", channel_id);
@@ -434,6 +455,7 @@ void sendMsg(int channel_id, client_t *client, char *message) {
     }
 
     // Construct the node for the linked list
+    pthread_rwlock_wrlock(&rwlock_messages);
     msgnode_t *newhead = node_add(messages[channel_id], msg_struct);
 
     if (newhead == NULL) {
@@ -442,7 +464,7 @@ void sendMsg(int channel_id, client_t *client, char *message) {
     }
     messages[channel_id] = newhead;
     printf("Sent to %d: %s\n", channel_id, messages[channel_id]->msg->string);
-    // TODO: Fix "SEND -1 msg" printing this statement to the server (or any invalid channel)
+    pthread_rwlock_unlock(&rwlock_messages);
     
     // Send back nothing because otherwise its blocking
     if (send(client->socket, "", MAXDATASIZE, 0) == -1) {
@@ -455,7 +477,7 @@ void sendMsg(int channel_id, client_t *client, char *message) {
 int bye(client_t *client) {
     printf("Client disconnected.\n");
     close(client->socket); // Close socket on server side
-    kill(pids[client->id], SIGTERM);
+    //kill(pids[(client->id)-1], SIGTERM); // This kills the server not just the client...
     return 0; // Required to stop server signal
 }
 
@@ -463,10 +485,14 @@ int bye(client_t *client) {
 void handleSIGINT(int _) {
     (void)_; // To stop the compiler complaining
 
-    // Kill extra process first
-    for (int i; i < num_clients; i++) {
-        kill(pids[i], SIGTERM);
+    pthread_rwlock_destroy(&rwlock_messages);
+    pthread_rwlock_destroy(&rwlock_counts);
+
+    // Terminate child processes
+    for (int i; i < clients_active; i++) {
+        if (clients_status[i] == 1) kill(pids[i], SIGTERM);
     }
+
 
     // Unmap and close shared memory
     munmap(messages, NUMCHANNELS * sizeof(msgnode_t*));
@@ -481,7 +507,6 @@ void handleSIGINT(int _) {
     // Clients should be freed automatically because they're stack variables
 
     printf("\nHandling the signal gracefully...\n"); 
-    // TODO: Deal with every process triggering...
 
     // Close sockets
     close(sockfd);
@@ -489,6 +514,9 @@ void handleSIGINT(int _) {
     exit(1);
 }
 
+
+// Linked list / data structure methods //
+// No locks in the following as all locks surround the calls to the below functions
 
 msgnode_t* node_add(msgnode_t *head, msg_t *message) {
     // create new node to add to list

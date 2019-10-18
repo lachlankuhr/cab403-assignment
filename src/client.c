@@ -33,6 +33,7 @@ int main(int argc, char **argv) {
     char command[COMMANDSIZE];
     char original_command[COMMANDSIZE];
     char buf[MAXDATASIZE];
+    int next_neg_one;
     int channel_id;
     int rc;
 
@@ -46,7 +47,8 @@ int main(int argc, char **argv) {
         // Command decoding
         // Reset the variables
         channel_id = -1;
-        decode_command(command, &channel_id);
+        next_neg_one = 0;
+        decode_command(command, &channel_id, &next_neg_one);
 
         // STOP fully handled by client
         if (strcmp(command, "STOP") == 0) {
@@ -57,8 +59,17 @@ int main(int argc, char **argv) {
         } else if (strcmp(command, "BYE") == 0) {
             closeConnection();
 
+        } else if (strcmp(command, "UNSUB -1") == 0) {
+            printf("Invalid channel: -1\n");
+            continue;
+        
         // NEXT client handles thread creation and sends request to server
         } else if (strcmp(command, "NEXT") == 0) {
+            if (next_neg_one == 1) {
+                printf("Invalid channel: -1\n");
+                continue;
+            }
+            
             // Create thread
             next_thread_count++;
             long channel = channel_id;
@@ -96,7 +107,6 @@ int main(int argc, char **argv) {
             printf("%s", buf);
         }
     }
-
     pthread_exit(NULL);
     return 0;
 }
@@ -142,7 +152,7 @@ void startClient(int argc, char **argv) {
 }
 
 
-int setClientPort(int argc, char ** argv) {
+int setClientPort(int argc, char **argv) {
     if (argc != 3) {
         printf("Please enter both a hostname and port number to connect.\n");
         exit(-1);
@@ -152,10 +162,11 @@ int setClientPort(int argc, char ** argv) {
 }
 
 
-void decode_command(char* command, int *channel_id) {
+void decode_command(char *command, int *channel_id, int *next_neg_one) {
     if (strtok(command, "\n") == NULL) { // No command
         return;
     }
+    if (strcmp("NEXT -1", command) == 0) *next_neg_one = 1;
 
     char *sep = strtok(command, " ");   // Separate command from arguments
 
@@ -267,17 +278,21 @@ void closeThreads() {
 
 
 void closeConnection() {
+    
+    // Inform user
     printf("\nClosing client...\n");
+    
+    // Close threads
     closeThreads();
 
+    // Inform server of exit command so it can implement BYE procedure
     char command[MAXDATASIZE];
     sprintf(command, "BYE");
-
-    // Inform server of exit command so it can implement BYE procedure
     if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
         perror("send");
         exit(1);
     }
+    
     // Close socket
     close(sockfd);
 
