@@ -34,9 +34,9 @@ struct client {
     int id; // user's ID
     int socket; // socket user is connecting on
     client_channel_t channels[NUMCHANNELS]; // boolean to indicate if channel is subscribed to channel at index
-    msgnode_t* read_msg[NUMCHANNELS]; // pointer to last message client has read in each channel.
+    msgnode_t *read_msg[NUMCHANNELS]; // pointer to last message client has read in each channel.
     // read_msg is initialised when client joins a channel.
 };
 
 // Add message to the linked list
-msgnode_t *node_add(msgnode_t *head, msg_t *message);
+msgnode_t* node_add(msgnode_t *head, msg_t *message);

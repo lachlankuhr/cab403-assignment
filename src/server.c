@@ -27,13 +27,11 @@
 // Global variables
 int sockfd, new_fd;       // Listen on sock_fd, new connection on new_fd
 char buf[MAXDATASIZE];
-msgnode_t ** messages;
-msgnode_t * messages_nodes;
-msg_t * messages_msg; 
+msgnode_t **messages;
+msgnode_t *messages_nodes;
+msg_t *messages_msg; 
 int *messages_counts;
-int smfd1;
-int smfd2;
-key_t test_key = 1;
+int smfd1, smfd2;
 
 // Keep track of how many messages were sent in total 
 int message_num = 0;
@@ -78,7 +76,6 @@ int main(int argc, char ** argv) {
 
         } else if (pids[num_clients-1] == 0) { // Child contiinues processing while loop 
             
-            connectClientToSharedMem();
             client_t* client = client_setup(client_id);
             client_processing(client); // Loops
 
@@ -99,46 +96,33 @@ int main(int argc, char ** argv) {
 
 void setupSharedMem() {
 
-    size_t size1 = NUMCHANNELS*sizeof(msgnode_t)+MAXMESSAGES*sizeof(msg_t)+MAXMESSAGELENGTH*MAXMESSAGES;
-    size_t size2 = NUMCHANNELS*sizeof(int);
+    size_t size1 = NUMCHANNELS*sizeof(msgnode_t*);
+    size_t size2 = MAXMESSAGES*sizeof(msgnode_t);
+    size_t size3 = MAXMESSAGES*sizeof(msg_t);
+    size_t size4 = NUMCHANNELS*sizeof(int);
 
     // Create a shared memory objects
     smfd1 = shm_open("/messagesregion", O_RDWR | O_CREAT, 0600);
     smfd2 = shm_open("/countsregion", O_RDWR | O_CREAT, 0600);
 
     // Resize to fit
-    ftruncate(smfd1, size1);
+    ftruncate(smfd1, size1 + size2 + size3);
     ftruncate(smfd2, size2);
 
-    // Map the object
-    messages = mmap(NULL, size1, PROT_READ | PROT_WRITE, MAP_SHARED, smfd1, 0);
-    messages_nodes = mmap(NULL, 1000 * sizeof(msgnode_t), PROT_READ | PROT_WRITE, MAP_SHARED, smfd1, 0);
-    messages_msg = mmap(NULL, 1000 * sizeof(msg_t), PROT_READ | PROT_WRITE, MAP_SHARED, smfd1, 0);
-    messages_counts = mmap(NULL, size2, PROT_READ | PROT_WRITE, MAP_SHARED, smfd2, 0);
+    // Map objects
+    messages = mmap(NULL, size1, PROT_READ | PROT_WRITE, MAP_SHARED, smfd1, 0); // Must be in SHM (by experimentation)
+    messages_nodes = mmap(NULL, size2, PROT_READ | PROT_WRITE, MAP_SHARED, smfd1, 0);
+    messages_msg = mmap(NULL, size3, PROT_READ | PROT_WRITE, MAP_SHARED, smfd1, 0);
+    messages_counts = mmap(NULL, size4, PROT_READ | PROT_WRITE, MAP_SHARED, smfd2, 0);
 
-    // Initalise message lists
+    // Initalise message list heads
     for (int i = 0; i < NUMCHANNELS; i++) {
         messages[i] = NULL;
     }
-    // Initalise array containing counts of all the messages sent to channels
+    // Initalise counts of messages sent to channels
     for (int i = 0; i < NUMCHANNELS; i++) {
         messages_counts[i] = 0;
     }
-}
-
-
-void connectClientToSharedMem() {
-
-    size_t size1 = NUMCHANNELS*sizeof(msgnode_t);
-    size_t size2 = NUMCHANNELS*sizeof(int);
-
-    // Open the shared memory object
-    smfd1 = shm_open("/messagesregion", O_RDWR, 0600);
-    smfd2 = shm_open("/countsregion", O_RDWR, 0600);
-
-    // Map the object
-    messages = mmap(NULL, size1, PROT_READ | PROT_WRITE, MAP_SHARED, smfd1, 0);
-    messages_counts = mmap(NULL, size2, PROT_READ | PROT_WRITE, MAP_SHARED, smfd2, 0);
 }
 
 
@@ -229,7 +213,7 @@ void client_processing (client_t* client) {
     while (run) {
         // Wait for incoming commands
         // Reset the variables
-        char* message = (char*)mmap(NULL, MAXMESSAGELENGTH, PROT_READ | PROT_WRITE, MAP_SHARED, smfd1, 0);//malloc(MAXDATASIZE);
+        char *message = (char*)mmap(NULL, MAXMESSAGELENGTH, PROT_READ | PROT_WRITE, MAP_SHARED, smfd1, 0);//malloc(MAXDATASIZE);
         channel_id = -1;
 
         // Receive command
@@ -240,7 +224,7 @@ void client_processing (client_t* client) {
             printf("Disconnect detected.\n");
             break;
         }
-        char* command = buf;
+        char *command = buf;
         int true_neg_one = 0;
 
         decode_command(client, command, &channel_id, message, &true_neg_one);
@@ -295,7 +279,7 @@ void decode_command(client_t *client, char *command, int *channel_id, char *mess
         return;
     }
 
-    char* sep = strtok(command, " ");   // Separate command from arguments
+    char *sep = strtok(command, " ");   // Separate command from arguments
     sep = strtok(NULL, " ");
 
     // This weird check is needed and I don't know why
@@ -465,7 +449,6 @@ void sendMsg(int channel_id, client_t *client, char* message) {
 
     // Construct the node for the linked list
     msgnode_t *newhead = node_add(messages[channel_id], msg_struct);
-    printf("%d\n", newhead->msg->user);
 
     if (newhead == NULL) {
         printf("Memory allocation error");
@@ -511,9 +494,9 @@ void handleSIGINT(int _) {
     // Dynamically allocated memory
     // Free messages
     for (int i = 0; i < NUMCHANNELS; i++) {
-        msgnode_t* head = messages[i];
+        msgnode_t *head = messages[i];
         while (head != NULL) {
-            msgnode_t* next = head->next;
+            msgnode_t *next = head->next;
             free(head->msg->string); // free message text
             free(head->msg); // free message struct
             free(head); // free message node
@@ -532,7 +515,7 @@ void handleSIGINT(int _) {
 }
 
 
-msgnode_t * node_add(msgnode_t *head, msg_t *message) {
+msgnode_t* node_add(msgnode_t *head, msg_t *message) {
     // create new node to add to list
     msgnode_t *new = &messages_nodes[message_num];
     if (new == NULL) {
@@ -546,12 +529,12 @@ msgnode_t * node_add(msgnode_t *head, msg_t *message) {
 }
 
 
-msg_t* read_message(int channel_id, client_t* client) {
+msg_t* read_message(int channel_id, client_t *client) {
     
     msgnode_t *last_read = client->read_msg[channel_id]; // current last read message
     msgnode_t *curr_head = messages[channel_id]; // current head, need to keep moving it back
 
-    if (&curr_head == &last_read) {
+    if (curr_head == last_read) {
         return NULL;
     }
 
@@ -568,8 +551,8 @@ msg_t* read_message(int channel_id, client_t* client) {
 
 
 msg_t* get_next_message(int channel_id, client_t *client) {
-    msgnode_t* last_read = client->read_msg[channel_id]; // current last read message
-    msgnode_t* curr_head = messages[channel_id]; // current head, need to keep moving it back
+    msgnode_t *last_read = client->read_msg[channel_id]; // current last read message
+    msgnode_t *curr_head = messages[channel_id]; // current head, need to keep moving it back
     if (curr_head == last_read) {
         return NULL;
     }
@@ -580,7 +563,7 @@ msg_t* get_next_message(int channel_id, client_t *client) {
 }
 
 
-int get_number_unread_messages(int channel_id, client_t* client) {
+int get_number_unread_messages(int channel_id, client_t *client) {
     msgnode_t *last_read = client->read_msg[channel_id]; // current last read message
     msgnode_t *curr_head = messages[channel_id]; // current head, need to keep moving it back
     int number_unread = 0;

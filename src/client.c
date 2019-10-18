@@ -3,7 +3,6 @@
 #include <string.h>
 #include <signal.h>
 #include <netdb.h> 
-#include <netinet/in.h> 
 #include <sys/socket.h> 
 #include <unistd.h>
 #include <errno.h> 
@@ -11,29 +10,19 @@
 #include "client.h"
 #include "data.h"
 
-#define MAXDATASIZE 30000
-#define NUMCHANNELS 255
-#define COMMANDSIZE 50  // This will need to be considered
-#define MAX_INPUT 3
+#define MAXDATASIZE 2048 // 1024 is too low to receive longer messages
+#define COMMANDSIZE 50
 #define MAX_THREADS 5
-// Global variables
+
+// Globals - Socket and threading
 int sockfd;
-struct hostent *he;
-struct sockaddr_in server_addr;
-int is_livefeed = 0;
-int exiting = 0;
-
-// Receiving data
-int numbytes;  
-
-//Threading
 int next_thread_count = 0;
 int livefeed_thread_count = 0;
 pthread_t next_threads[MAX_THREADS];
 pthread_t livefeed_threads[MAX_THREADS];
 
 
-int main(int argc, char ** argv) {
+int main(int argc, char **argv) {
     // Setup the signal handling for SIGINT signal
     signal(SIGINT, handleSIGINT);
 
@@ -99,6 +88,7 @@ int main(int argc, char ** argv) {
                 perror("send");
             }
             // Receive the response
+            int numbytes;  
             if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
                 perror("recv.");
             }
@@ -112,9 +102,10 @@ int main(int argc, char ** argv) {
 }
 
 
-void startClient(int argc, char ** argv) {
+void startClient(int argc, char **argv) {
     // Set the client's port number
     int port_number = setClientPort(argc, argv);
+    struct hostent *he;
     char buf[MAXDATASIZE];
 
     if ((he=gethostbyname(argv[1])) == NULL) {  // Get the server info
@@ -127,10 +118,12 @@ void startClient(int argc, char ** argv) {
 		exit(1);
 	}
 
-	server_addr.sin_family = AF_INET;             // Host byte order */
-	server_addr.sin_port = htons(port_number);    // Short, network byte order */
+    // Setup socket then connect
+    struct sockaddr_in server_addr;
+	server_addr.sin_family = AF_INET;
+	server_addr.sin_port = htons(port_number);
 	server_addr.sin_addr = *((struct in_addr *)he->h_addr);
-	bzero(&(server_addr.sin_zero), 8);            // Zero the rest of the struct */
+	bzero(&(server_addr.sin_zero), 8); // Zero the rest of the struct
 
     if (connect(sockfd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr)) == -1) {
 		perror("connect");
@@ -138,6 +131,7 @@ void startClient(int argc, char ** argv) {
 	}
 
     // Receive the startup message
+    int numbytes;  
     if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
 		perror("recv");
 		exit(1);
@@ -158,12 +152,12 @@ int setClientPort(int argc, char ** argv) {
 }
 
 
-void decode_command(char* command, int* channel_id) {
+void decode_command(char* command, int *channel_id) {
     if (strtok(command, "\n") == NULL) { // No command
         return;
     }
 
-    char* sep = strtok(command, " ");   // Separate command from arguments
+    char *sep = strtok(command, " ");   // Separate command from arguments
 
     sep = strtok(NULL, " ");
     if (sep != NULL) {  // Get channel ID
@@ -182,7 +176,7 @@ void decode_command(char* command, int* channel_id) {
 }
 
 
-void *nextThreadFunc(void *channel) {
+void* nextThreadFunc(void *channel) {
     // Send the command
     char command[100];
     long channel_id = (long)channel;
@@ -198,6 +192,7 @@ void *nextThreadFunc(void *channel) {
         perror("send");
     }
     // Receive the response
+    int numbytes;  
     if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
         perror("recv.");
     }
@@ -209,7 +204,7 @@ void *nextThreadFunc(void *channel) {
 }
 
 
-void *livefeedThreadFunc(void *channel) {
+void* livefeedThreadFunc(void *channel) {
     char command[100];
     long channel_id = (long)channel;
     char buf[MAXDATASIZE];
@@ -226,6 +221,7 @@ void *livefeedThreadFunc(void *channel) {
             perror("send");
         }
         // Receive the response
+        int numbytes;  
         if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
             perror("recv.");
         }
@@ -245,10 +241,7 @@ void *livefeedThreadFunc(void *channel) {
 
 void handleSIGINT(int _) {
     (void)_; // To stop the compiler complaining
-    if (exiting == 0) {
-        exiting = 1;
-        closeConnection();
-    }
+    closeConnection();
 }
 
 
