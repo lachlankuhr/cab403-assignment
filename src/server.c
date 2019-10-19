@@ -15,17 +15,17 @@
 #include <pthread.h> 
 #include "server.h"
 
-#define BACKLOG 10              // How many pending connections queue will hold
+#define BACKLOG 5              // How many pending connections queue will hold
 #define MAXDATASIZE 30000
 #define MAXMESSAGES 1000
 #define MAXMESSAGELENGTH 1024
 #define NUMCHANNELS 255
-#define MAXCLIENTS 20
+#define MAXCLIENTS 3
 
 
 // Global variables
 int sockfd, new_fd;       // Listen on sock_fd, new connection on new_fd
-char buf[MAXDATASIZE];    // Craps itself if I try to make this local...
+char buf[MAXDATASIZE];    // TODO: Localise... Craps itself when I (A) try
 pid_t pids[MAXCLIENTS];
 int clients_status[MAXCLIENTS];
 int clients_active = -1;
@@ -58,12 +58,18 @@ int main(int argc, char **argv) {
 		printf("Server: got connection from %s\n", inet_ntoa(client_addr.sin_addr));
         
         clients_active++;
+        if (clients_active == MAXCLIENTS) {
+            printf("Maximum client connections reached, please restart\n");
+            continue;
+        }
+
         pids[clients_active] = fork();
         if (pids[clients_active] == 0) {
 
             clients_status[clients_active] = 1;
             client_t client;
             client_setup(&client, clients_active);
+            signal(SIGINT, handleChildSIGINT);
             client_processing(&client); // Loops
 
         } else if (pids[clients_active] > 0) { 
@@ -111,7 +117,6 @@ void setupSharedMem() {
 
     pthread_rwlock_init(&rwlock_messages, NULL);
     pthread_rwlock_init(&rwlock_counts, NULL);
-
 }
 
 
@@ -482,9 +487,8 @@ void handleSIGINT(int _) {
 
     // Terminate child processes
     for (int i = 0; i < clients_active; i++) {
-        if (clients_status[i] == 1) kill(pids[i], SIGTERM);
+        kill(pids[i], SIGTERM);
     }
-
 
     // Unmap and close shared memory
     munmap(messages, NUMCHANNELS * sizeof(msgnode_t*));
@@ -496,12 +500,22 @@ void handleSIGINT(int _) {
     shm_unlink("/messages");
     shm_unlink("/counts");
 
-    // Clients should be freed automatically because they're stack variables
+    // Clients freed automatically as stack variables
 
-    printf("\nHandling the signal gracefully...\n"); 
+    printf("\nServer closing...\n"); 
 
     // Close sockets
     close(sockfd);
+    close(new_fd);
+    exit(1);
+}
+
+void handleChildSIGINT(int _) {
+    (void)_; // To stop the compiler complaining
+    
+    pthread_rwlock_destroy(&rwlock_messages);
+    pthread_rwlock_destroy(&rwlock_counts);
+
     close(new_fd);
     exit(1);
 }

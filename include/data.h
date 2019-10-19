@@ -41,6 +41,7 @@ struct client {
     // read_msg is initialised when client joins a channel.
 };
 
+/* Used for client threading to send arguments to threads */
 typedef struct thread_args thread_args_t;
 struct thread_args {
     int channel;
