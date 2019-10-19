@@ -19,7 +19,7 @@
 #define MAXDATASIZE 30000
 #define MAXMESSAGES 1000
 #define MAXMESSAGELENGTH 1024
-#define NUMCHANNELS 255
+#define NUMCHANNELS 256 // 0 to 255
 #define MAXCLIENTS 20
 
 
@@ -111,6 +111,13 @@ void setupSharedMem() {
     for (int i = 0; i < NUMCHANNELS; i++) {
         messages[i] = NULL;
     }
+
+    for (int i = 0; i < MAXMESSAGES; i++) {
+        messages_nodes[i].msg = NULL;
+        messages_nodes[i].next = NULL;
+    }
+
+
     // Initalise counts of messages sent to channels. Last index is total.
     for (int i = 0; i < NUMCHANNELS+1; i++) {
         messages_counts[i] = 0;
@@ -182,7 +189,7 @@ void client_setup(client_t *client, int client_id) {
     //Setup new client
     client->id = client_id; // set client id
     client->socket = new_fd; // set socket
-    for (int i = 0; i < NUMCHANNELS; i++) { // set subscribed channels
+    for (int i = 0; i < NUMCHANNELS; i++) { // Set subscribed channels
         client->channels[i].subscribed = 0;
         client->channels[i].read = 0;
     }
@@ -236,8 +243,10 @@ void client_processing(client_t *client) {
 
         } else if (strcmp(command, "NEXT") == 0) {
             if (channel_id == -1) {
+                printf("calling NEXT\n"); fflush(stdout);
                 next(client);
             } else {
+                printf("calling NEXT channel\n"); fflush(stdout);
                 nextChannel(channel_id, client);
             }
 
@@ -365,11 +374,13 @@ void next(client_t *client) {
     for (int channel_id = 0; channel_id <  NUMCHANNELS; channel_id++) {
         if (client->channels[channel_id].subscribed == 1) {
             client_subscribed_to_any_channel = 1;
-
+            printf("Channel %d subbed, checking for msg\n", channel_id); fflush(stdout);
             pthread_rwlock_wrlock(&rwlock_messages);
+
             msg_t *message = get_next_message(channel_id, client); // just get and not move head forward
             pthread_rwlock_unlock(&rwlock_messages);
-            
+            printf("Message got\n"); fflush(stdout);
+
             pthread_rwlock_rdlock(&rwlock_messages);
             if (message != NULL) { // could use short circuiting
                 if (message->time < min_time) {
@@ -377,6 +388,7 @@ void next(client_t *client) {
                     next_msg = message;
                     next_channel = channel_id;
                 }
+                printf("Message got: %s\n", message->string); fflush(stdout);
             }
             pthread_rwlock_unlock(&rwlock_messages);
         }
@@ -403,6 +415,8 @@ void next(client_t *client) {
 void nextChannel(int channel_id, client_t *client) {
     char return_msg[MAXDATASIZE];
     msg_t *message_to_read;
+
+    printf("in next channel\n"); fflush(stdout);
     
     if (channel_id < 0 || channel_id > 255) {
         sprintf(return_msg, "Invalid channel: %d\n", channel_id);
@@ -423,7 +437,7 @@ void nextChannel(int channel_id, client_t *client) {
 
     if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
         perror("send");
-    } 
+    }
 }
 
 
@@ -485,13 +499,11 @@ void handleSIGINT(int _) {
     pthread_rwlock_destroy(&rwlock_messages);
     pthread_rwlock_destroy(&rwlock_counts);
 
-    // Child processes terminate themsellves
-
     // Unmap and close shared memory
     munmap(messages, NUMCHANNELS * sizeof(msgnode_t*));
     munmap(messages_nodes, MAXMESSAGES * sizeof(msgnode_t));
     munmap(messages_msg, MAXMESSAGES * sizeof(msg_t));
-    munmap(messages_counts, NUMCHANNELS * sizeof(int));
+    munmap(messages_counts, (NUMCHANNELS+1) * sizeof(int));
     close(smfd1);
     close(smfd2);
     shm_unlink("/messages");
@@ -503,6 +515,12 @@ void handleSIGINT(int _) {
 
     // Close sockets
     close(sockfd); close(new_fd);
+
+    // Child processes terminate themselves
+    for (int i = 0; i < MAXCLIENTS; i++) {
+        kill(pids[i], SIGTERM);
+    }
+
     exit(1);
 }
 
@@ -544,9 +562,13 @@ msg_t* read_message(int channel_id, client_t *client) {
         return NULL;
     }
 
+    printf("%p\n", curr_head->next); fflush(stdout);
     while (curr_head->next != last_read) {
+        printf("heheid\n"); fflush(stdout);
         curr_head = curr_head->next;
     }
+    printf("out\n"); fflush(stdout);
+
     client->read_msg[channel_id] = curr_head;
 
     // Increase the number of read messages
@@ -557,14 +579,19 @@ msg_t* read_message(int channel_id, client_t *client) {
 
 
 msg_t* get_next_message(int channel_id, client_t *client) {
+
     msgnode_t *last_read = client->read_msg[channel_id]; // current last read message
     msgnode_t *curr_head = messages[channel_id]; // current head, need to keep moving it back
+
     if (curr_head == last_read) {
         return NULL;
     }
+    printf("%p\n", curr_head->next); fflush(stdout);
     while (curr_head->next != last_read) {
-        curr_head = curr_head->next;
+        printf("hehe\n"); fflush(stdout);
+        curr_head = curr_head->next;            // Problem line
     }
+    printf("finished while\n"); fflush(stdout);
     return(curr_head->msg);
 }
 

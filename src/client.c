@@ -67,7 +67,6 @@ int main(int argc, char **argv) {
                 printf("Invalid channel: -1\n");
                 continue;
             }
-            
             // Find first empty pid in thread array
             int next_thread_id = -1;
             for (int i = 0; i < MAX_THREADS; i++) {

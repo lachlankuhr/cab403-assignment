@@ -1,7 +1,7 @@
 #include <time.h>
 #include <stdbool.h>
 
-#define NUMCHANNELS 255
+#define NUMCHANNELS 256
 #define MAXMESSAGELENGTH 1024
 
 /* Messages
