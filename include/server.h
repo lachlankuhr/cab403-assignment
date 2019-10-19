@@ -22,7 +22,7 @@ void decode_command(client_t *client, char *command, int *channel_id, char *mess
 void client_setup(client_t *client, int client_id);
 
 /* Loop for each client process */
-void client_processing (client_t *client);
+void client_processing(client_t *client, pid_t current_process);
 
 
 // Action methods //
@@ -46,7 +46,7 @@ void nextChannel(int channel_id, client_t *client);
 void sendMsg(int channel_id, client_t *client, char *message);
 
 /* Disconnect CLIENT from the server */
-int bye(client_t *client);
+int bye(client_t *client, pid_t closing_process);
 
 
 // Data structure methods //

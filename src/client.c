@@ -331,7 +331,7 @@ void closeConnection() {
         exit(1);
     }
     
-    // Close socket
+    // Server closes the socket
     close(sockfd);
 
     // Close parent thread and thus all children (MUST be last)

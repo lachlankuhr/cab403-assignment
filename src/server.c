@@ -35,7 +35,7 @@ msgnode_t **messages;       // Array of pointers to msg_t node heads
 msgnode_t *messages_nodes;  // Array of all msg_t nodes
 msg_t *messages_msg;        // Array of all msg_t messages
 int *messages_counts;       // Array of msg counts by channel, last index is total
-int smfd1, smfd2;           // SHM handle IDs
+int smfd1, smfd2, smfd3, smfd4;           // SHM handle IDs
 pthread_rwlock_t rwlock_messages;
 pthread_rwlock_t rwlock_counts;
 
@@ -64,16 +64,17 @@ int main(int argc, char **argv) {
 
         pids[clients_active] = fork();
         if (pids[clients_active] == 0) {
-            
+
             clients_active++;
             clients_status[clients_active-1] = 1;
             client_t client;
             client_setup(&client, clients_active-1);
             signal(SIGINT, handleChildSIGINT);
-            client_processing(&client); // Loops
+            client_processing(&client, pids[clients_active-1]); // Loops
 
         } else if (pids[clients_active] > 0) { 
             // Parent continues to look for new connections in above while loop section.
+            printf("%d\n", pids[clients_active]); fflush(stdout);
             clients_active++;
 
         } else {
@@ -95,17 +96,21 @@ void setupSharedMem() {
 
     // Create a shared memory objects
     smfd1 = shm_open("/messages", O_RDWR | O_CREAT, 0600);
-    smfd2 = shm_open("/counts", O_RDWR | O_CREAT, 0600);
+    smfd2 = shm_open("/messagesnodes", O_RDWR | O_CREAT, 0600);
+    smfd3 = shm_open("/messagesmsg", O_RDWR | O_CREAT, 0600);
+    smfd4 = shm_open("/counts", O_RDWR | O_CREAT, 0600);
 
     // Resize to fit
-    ftruncate(smfd1, size1 + size2 + size3);
-    ftruncate(smfd2, size4);
+    ftruncate(smfd1, size1);
+    ftruncate(smfd2, size2);
+    ftruncate(smfd3, size3);
+    ftruncate(smfd4, size4);
 
     // Map objects
     messages = mmap(NULL, size1, PROT_READ | PROT_WRITE, MAP_SHARED, smfd1, 0); // Must be in SHM (by experimentation)
-    messages_nodes = mmap(NULL, size2, PROT_READ | PROT_WRITE, MAP_SHARED, smfd1, 0);
-    messages_msg = mmap(NULL, size3, PROT_READ | PROT_WRITE, MAP_SHARED, smfd1, 0);
-    messages_counts = mmap(NULL, size4, PROT_READ | PROT_WRITE, MAP_SHARED, smfd2, 0);
+    messages_nodes = mmap(NULL, size2, PROT_READ | PROT_WRITE, MAP_SHARED, smfd2, 0);
+    messages_msg = mmap(NULL, size3, PROT_READ | PROT_WRITE, MAP_SHARED, smfd3, 0);
+    messages_counts = mmap(NULL, size4, PROT_READ | PROT_WRITE, MAP_SHARED, smfd4, 0);
 
     // Initalise message list heads
     for (int i = 0; i < NUMCHANNELS; i++) {
@@ -207,7 +212,7 @@ void client_setup(client_t *client, int client_id) {
 }
 
 
-void client_processing(client_t *client) {
+void client_processing(client_t *client, pid_t current_process) {
     // What each process loops around while client active
     int channel_id;
     int run = 1;
@@ -243,10 +248,8 @@ void client_processing(client_t *client) {
 
         } else if (strcmp(command, "NEXT") == 0) {
             if (channel_id == -1) {
-                printf("calling NEXT\n"); fflush(stdout);
                 next(client);
             } else {
-                printf("calling NEXT channel\n"); fflush(stdout);
                 nextChannel(channel_id, client);
             }
 
@@ -254,7 +257,7 @@ void client_processing(client_t *client) {
             sendMsg(channel_id, client, message);
 
         } else if (strcmp(command, "BYE") == 0 && channel_id == -1) {
-            run = bye(client);
+            run = bye(client, current_process);
 
         } else {
             if (strtok(command, "\n") != NULL) { // Important to prevent the no command entered and invalid command printing
@@ -374,12 +377,10 @@ void next(client_t *client) {
     for (int channel_id = 0; channel_id <  NUMCHANNELS; channel_id++) {
         if (client->channels[channel_id].subscribed == 1) {
             client_subscribed_to_any_channel = 1;
-            printf("Channel %d subbed, checking for msg\n", channel_id); fflush(stdout);
             pthread_rwlock_wrlock(&rwlock_messages);
 
             msg_t *message = get_next_message(channel_id, client); // just get and not move head forward
             pthread_rwlock_unlock(&rwlock_messages);
-            printf("Message got\n"); fflush(stdout);
 
             pthread_rwlock_rdlock(&rwlock_messages);
             if (message != NULL) { // could use short circuiting
@@ -388,7 +389,6 @@ void next(client_t *client) {
                     next_msg = message;
                     next_channel = channel_id;
                 }
-                printf("Message got: %s\n", message->string); fflush(stdout);
             }
             pthread_rwlock_unlock(&rwlock_messages);
         }
@@ -415,8 +415,6 @@ void next(client_t *client) {
 void nextChannel(int channel_id, client_t *client) {
     char return_msg[MAXDATASIZE];
     msg_t *message_to_read;
-
-    printf("in next channel\n"); fflush(stdout);
     
     if (channel_id < 0 || channel_id > 255) {
         sprintf(return_msg, "Invalid channel: %d\n", channel_id);
@@ -474,7 +472,6 @@ void sendMsg(int channel_id, client_t *client, char *message) {
         exit(EXIT_FAILURE);
     }
     messages[channel_id] = newhead;
-    printf("Sent to %d: %s\n", channel_id, messages[channel_id]->msg->string);
     pthread_rwlock_unlock(&rwlock_messages);
     
     // Send back nothing because otherwise its blocking
@@ -485,10 +482,10 @@ void sendMsg(int channel_id, client_t *client, char *message) {
 }
 
 
-int bye(client_t *client) {
-    printf("Client disconnected.\n");
+int bye(client_t *client, pid_t closing_process) {
     close(client->socket); // Close socket on server side
-    kill(getpid(), SIGTERM); // Stop server process handling client that was closed
+    kill(closing_process, SIGTERM); // Stop server process handling client that was closed
+    printf("Client disconnected2.\n");
     return 0; // Required to stop server signal
 }
 
@@ -506,7 +503,11 @@ void handleSIGINT(int _) {
     munmap(messages_counts, (NUMCHANNELS+1) * sizeof(int));
     close(smfd1);
     close(smfd2);
+    close(smfd3);
+    close(smfd4);
     shm_unlink("/messages");
+    shm_unlink("/messagesnodes");
+    shm_unlink("/messagesmsg");
     shm_unlink("/counts");
 
     // Clients freed automatically as stack variables
@@ -520,7 +521,6 @@ void handleSIGINT(int _) {
     for (int i = 0; i < MAXCLIENTS; i++) {
         kill(pids[i], SIGTERM);
     }
-
     exit(1);
 }
 
@@ -562,12 +562,9 @@ msg_t* read_message(int channel_id, client_t *client) {
         return NULL;
     }
 
-    printf("%p\n", curr_head->next); fflush(stdout);
     while (curr_head->next != last_read) {
-        printf("heheid\n"); fflush(stdout);
         curr_head = curr_head->next;
     }
-    printf("out\n"); fflush(stdout);
 
     client->read_msg[channel_id] = curr_head;
 
@@ -586,12 +583,9 @@ msg_t* get_next_message(int channel_id, client_t *client) {
     if (curr_head == last_read) {
         return NULL;
     }
-    printf("%p\n", curr_head->next); fflush(stdout);
     while (curr_head->next != last_read) {
-        printf("hehe\n"); fflush(stdout);
         curr_head = curr_head->next;            // Problem line
     }
-    printf("finished while\n"); fflush(stdout);
     return(curr_head->msg);
 }
 
