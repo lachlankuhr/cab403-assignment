@@ -18,7 +18,7 @@ void handleSIGINT();
 void decode_command(client_t *client, char *command, int *channel_id, char *message);
 
 /* Setup a new client object after connection */
-client_t* client_setup(int client_id);
+void client_setup(client_t *client, int client_id);
 
 /* Loop for each client process */
 void client_processing (client_t *client);

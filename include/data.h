@@ -41,6 +41,8 @@ struct client {
     // read_msg is initialised when client joins a channel.
 };
 
-
-
-
+typedef struct thread_args thread_args_t;
+struct thread_args {
+    int channel;
+    int id;
+};

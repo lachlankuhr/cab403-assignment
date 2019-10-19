@@ -12,14 +12,12 @@
 
 #define MAXDATASIZE 30000 // Needs to be high
 #define COMMANDSIZE 50
-#define MAX_THREADS 5
+#define MAX_THREADS 3
 
 // Globals - Socket and threading
 int sockfd;
-int next_thread_count = 0;
-int livefeed_thread_count = 0;
-pthread_t next_threads[MAX_THREADS];
-pthread_t livefeed_threads[MAX_THREADS];
+int thread_states[MAX_THREADS];
+pthread_t threads[MAX_THREADS];
 
 
 int main(int argc, char **argv) {
@@ -70,27 +68,62 @@ int main(int argc, char **argv) {
                 continue;
             }
             
-            // Create thread
-            next_thread_count++;
-            long channel = channel_id;
+            // Find first empty pid in thread array
+            int next_thread_id = -1;
+            for (int i = 0; i < MAX_THREADS; i++) {
+                if (thread_states[i] == 0) {
+                    next_thread_id = i;
+                    break;
+                }
+            }
+            if (next_thread_id == -1) {
+                printf("No threads remain available to execute command\n");
+                break;
+            }
 
-            if ((rc = pthread_create(&next_threads[next_thread_count-1],  
-                NULL, nextThreadFunc, (void *)channel))) {
+            // Create thread
+            thread_args_t args;
+            args.channel = channel_id;
+            args.id = next_thread_id;
+
+            if ((rc = pthread_create(&threads[next_thread_id],  
+                NULL, nextThreadFunc, (void *)&args))) {
                 printf("ERROR; return code from pthread_create() is %d\n", rc);
                 exit(-1);
             }
+            thread_states[next_thread_id] = 1;
 
         // LIVEFEED client handles thread creation and NEXT polling loop
         } else if (strcmp(command, "LIVEFEED") == 0) {
-            // Create thread
-            livefeed_thread_count++;
-            long channel = channel_id;
+            if (next_neg_one == 1) {
+                printf("Invalid channel: -1\n");
+                continue;
+            }
 
-            if ((rc = pthread_create(&livefeed_threads[livefeed_thread_count-1], 
-                NULL, livefeedThreadFunc, (void *)channel))) {
+            // Find first empty pid in thread array
+            int next_thread_id = -1;
+            for (int i = 0; i < MAX_THREADS; i++) {
+                if (thread_states[i] == 0) {
+                    next_thread_id = i;
+                    break;
+                }
+            }
+            if (next_thread_id == -1) {
+                printf("No threads are available\n");
+                continue;
+            }
+
+            // Create thread
+            thread_args_t args;
+            args.channel = channel_id;
+            args.id = next_thread_id;
+
+            if ((rc = pthread_create(&threads[next_thread_id], 
+                NULL, livefeedThreadFunc, (void *)&args))) {
                 printf("ERROR; return code from pthread_create() is %d\n", rc);
                 exit(-1);
             }
+            thread_states[next_thread_id] = 1;
 
         // All other commands send to server
         } else { 
@@ -149,6 +182,11 @@ void startClient(int argc, char **argv) {
 
 	buf[numbytes] = '\0';
 	printf("%s", buf);
+
+    // Initisialse thread states
+    for (int i = 0; i < MAX_THREADS; i++) {
+        thread_states[i] = 0;
+    }
 }
 
 
@@ -187,16 +225,18 @@ void decode_command(char *command, int *channel_id, int *next_neg_one) {
 }
 
 
-void* nextThreadFunc(void *channel) {
+void* nextThreadFunc(void *args_sent) {
+    struct thread_args *args = (struct thread_args *)args_sent;
+
     // Send the command
     char command[100];
-    long channel_id = (long)channel;
     char buf[MAXDATASIZE];
+    int channel_id = args->channel;
 
     if (channel_id == -1) {
         sprintf(command, "NEXT");
     } else if (channel_id != -1) {
-        sprintf(command, "NEXT %ld", channel_id);
+        sprintf(command, "NEXT %d", channel_id);
     }
     
     if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
@@ -210,20 +250,22 @@ void* nextThreadFunc(void *channel) {
     buf[numbytes] = '\0';
     printf("%s", buf);
     
-    next_thread_count--;
+    thread_states[args->id] = 0;
     pthread_exit(NULL);
 }
 
 
-void* livefeedThreadFunc(void *channel) {
+void* livefeedThreadFunc(void *args_sent) {
+    struct thread_args *args = (struct thread_args *)args_sent;
+
     char command[100];
-    long channel_id = (long)channel;
     char buf[MAXDATASIZE];
+    int channel_id = args->channel;
 
     if (channel_id == -1) {
         sprintf(command, "NEXT");
     } else if (channel_id != -1) {
-        sprintf(command, "NEXT %ld", channel_id);
+        sprintf(command, "NEXT %d", channel_id);
     }
     
     while (1) {
@@ -244,8 +286,9 @@ void* livefeedThreadFunc(void *channel) {
         }
 
         sleep(0.5);
-    }
-    livefeed_thread_count--;
+    } // How does this exit?
+
+    thread_states[args->id] = 0;
     pthread_exit(NULL);
 }
 
@@ -258,22 +301,18 @@ void handleSIGINT(int _) {
 
 void closeThreads() {
     int rc;
-    for (int i = 0; i < next_thread_count; i++) {
-        printf("Cancelling next thread %d\n", i);
-        if ((rc = pthread_cancel(next_threads[i]))) {
-            printf("Failed to cancel thread #%d: %d\n", i, rc);
-            exit(-1);
+
+    for (int i = 0; i < MAX_THREADS; i++) {
+
+        if (thread_states[i] == 1) {
+            printf("Cancelling thread %d\n", i);
+            if ((rc = pthread_cancel(threads[i]))) {
+                printf("Failed to cancel thread or already cancelled #%d: %d\n", i, rc);
+                exit(-1);
+            }
+            thread_states[i] = 0;
         }
     }
-    for (int i = 0; i < livefeed_thread_count; i++) {
-        printf("Cancelling livefeed thread %d\n", i);
-        if ((rc = pthread_cancel(livefeed_threads[i]))) {
-            printf("Failed to cancel thread #%d: %d\n", i, rc);
-            exit(-1);
-        }
-    }
-    next_thread_count = 0;
-    livefeed_thread_count = 0;
 }
 
 

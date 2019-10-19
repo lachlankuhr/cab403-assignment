@@ -62,8 +62,9 @@ int main(int argc, char **argv) {
         if (pids[clients_active] == 0) {
 
             clients_status[clients_active] = 1;
-            client_t *client = client_setup(clients_active);
-            client_processing(client); // Loops
+            client_t client;
+            client_setup(&client, clients_active);
+            client_processing(&client); // Loops
 
         } else if (pids[clients_active] > 0) { 
             // Parent continues to look for new connections in above while loop section.
@@ -171,17 +172,14 @@ int setServerPort(int argc, char **argv) {
 }
 
 
-client_t* client_setup(int client_id) {
+void client_setup(client_t *client, int client_id) {
     //Setup new client
-    client_t new_client;
-    new_client.id = client_id; // set client id
-    new_client.socket = new_fd; // set socket
+    client->id = client_id; // set client id
+    client->socket = new_fd; // set socket
     for (int i = 0; i < NUMCHANNELS; i++) { // set subscribed channels
-        new_client.channels[i].subscribed = 0;
-        new_client.channels[i].read = 0;
+        client->channels[i].subscribed = 0;
+        client->channels[i].read = 0;
     }
-    // Point client to new client
-    client_t *client = &new_client;
 
     // Respond to client with welcome and choose client ID
     char msg[1024] = "Welcome! Your client ID is ";
@@ -193,7 +191,6 @@ client_t* client_setup(int client_id) {
     if (send(client->socket, msg, MAXDATASIZE, 0) == -1) {
         perror("send");
     }
-    return client;
 }
 
 
@@ -484,7 +481,7 @@ void handleSIGINT(int _) {
     pthread_rwlock_destroy(&rwlock_counts);
 
     // Terminate child processes
-    for (int i; i < clients_active; i++) {
+    for (int i = 0; i < clients_active; i++) {
         if (clients_status[i] == 1) kill(pids[i], SIGTERM);
     }
 
