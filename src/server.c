@@ -28,7 +28,7 @@ int sockfd, new_fd;       // Listen on sock_fd, new connection on new_fd
 char buf[MAXDATASIZE];    // TODO: Localise... Craps itself when I (A) try
 pid_t pids[MAXCLIENTS];
 int clients_status[MAXCLIENTS];
-int clients_active = -1;
+int clients_active = 0;
 
 // Shared memory address shortcut pointers
 msgnode_t **messages;       // Array of pointers to msg_t node heads
@@ -57,23 +57,24 @@ int main(int argc, char **argv) {
 		}
 		printf("Server: got connection from %s\n", inet_ntoa(client_addr.sin_addr));
         
-        clients_active++;
-        if (clients_active == MAXCLIENTS) {
+        if (clients_active+1 > MAXCLIENTS) {
             printf("Maximum client connections reached, please restart\n");
             continue;
         }
 
         pids[clients_active] = fork();
         if (pids[clients_active] == 0) {
-
-            clients_status[clients_active] = 1;
+            
+            clients_active++;
+            clients_status[clients_active-1] = 1;
             client_t client;
-            client_setup(&client, clients_active);
+            client_setup(&client, clients_active-1);
             signal(SIGINT, handleChildSIGINT);
             client_processing(&client); // Loops
 
         } else if (pids[clients_active] > 0) { 
             // Parent continues to look for new connections in above while loop section.
+            clients_active++;
 
         } else {
             // Fork failed
@@ -361,8 +362,6 @@ void next(client_t *client) {
     msg_t *next_msg = NULL;
     int client_subscribed_to_any_channel = 0;
 
-    printf("In Next\n"); fflush(stdout);
-
     for (int channel_id = 0; channel_id <  NUMCHANNELS; channel_id++) {
         if (client->channels[channel_id].subscribed == 1) {
             client_subscribed_to_any_channel = 1;
@@ -432,18 +431,18 @@ void sendMsg(int channel_id, client_t *client, char *message) {
     // Check for invalid channel
     char return_msg[MAXDATASIZE];
     
+    pthread_rwlock_wrlock(&rwlock_messages);
+    msg_t *msg_struct = &messages_msg[messages_counts[NUMCHANNELS]]; // Points
+    memcpy(msg_struct->string, message, MAXMESSAGELENGTH);
+    msg_struct->user = client->id;
+    msg_struct->time = time(NULL);
+    pthread_rwlock_unlock(&rwlock_messages);
+
     // Increment channel ID count and total count
     pthread_rwlock_rdlock(&rwlock_counts);
     messages_counts[channel_id]++;
     messages_counts[NUMCHANNELS]++;
     pthread_rwlock_unlock(&rwlock_counts);
-
-    pthread_rwlock_wrlock(&rwlock_messages);
-    msg_t *msg_struct = &messages_msg[messages_counts[NUMCHANNELS]];
-    memcpy(msg_struct->string, message, MAXMESSAGELENGTH);
-    msg_struct->user = client->id;
-    msg_struct->time = time(NULL);
-    pthread_rwlock_unlock(&rwlock_messages);
 
     if (channel_id < 0 || channel_id > 255) {
         sprintf(return_msg, "Invalid channel: %d\n", channel_id);
