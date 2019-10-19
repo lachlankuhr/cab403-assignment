@@ -20,7 +20,7 @@
 #define MAXMESSAGES 1000
 #define MAXMESSAGELENGTH 1024
 #define NUMCHANNELS 255
-#define MAXCLIENTS 3
+#define MAXCLIENTS 20
 
 
 // Global variables
@@ -361,6 +361,7 @@ void next(client_t *client) {
     msg_t *next_msg = NULL;
     int client_subscribed_to_any_channel = 0;
 
+    printf("In Next\n"); fflush(stdout);
 
     for (int channel_id = 0; channel_id <  NUMCHANNELS; channel_id++) {
         if (client->channels[channel_id].subscribed == 1) {
@@ -474,7 +475,7 @@ void sendMsg(int channel_id, client_t *client, char *message) {
 int bye(client_t *client) {
     printf("Client disconnected.\n");
     close(client->socket); // Close socket on server side
-    //kill(pids[(client->id)-1], SIGTERM); // This kills the server not just the client...
+    kill(getpid(), SIGTERM); // Stop server process handling client that was closed
     return 0; // Required to stop server signal
 }
 
@@ -485,10 +486,7 @@ void handleSIGINT(int _) {
     pthread_rwlock_destroy(&rwlock_messages);
     pthread_rwlock_destroy(&rwlock_counts);
 
-    // Terminate child processes
-    for (int i = 0; i < clients_active; i++) {
-        kill(pids[i], SIGTERM);
-    }
+    // Child processes terminate themsellves
 
     // Unmap and close shared memory
     munmap(messages, NUMCHANNELS * sizeof(msgnode_t*));
@@ -505,8 +503,7 @@ void handleSIGINT(int _) {
     printf("\nServer closing...\n"); 
 
     // Close sockets
-    close(sockfd);
-    close(new_fd);
+    close(sockfd); close(new_fd);
     exit(1);
 }
 
@@ -516,7 +513,8 @@ void handleChildSIGINT(int _) {
     pthread_rwlock_destroy(&rwlock_messages);
     pthread_rwlock_destroy(&rwlock_counts);
 
-    close(new_fd);
+    close(sockfd); close(new_fd);
+    kill(getpid(), SIGTERM); // Child processes close themselves
     exit(1);
 }
 
