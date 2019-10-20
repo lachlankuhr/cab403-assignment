@@ -14,6 +14,7 @@ void setupSharedMem();
 /* Handles SIGINT signal to gracefully exit after crtl+c */
 void handleSIGINT();
 void handleChildSIGINT(int _);
+void childClose(int pid);
 
 /* Client command paring */
 void decode_command(client_t *client, char *command, int *channel_id, char *message);

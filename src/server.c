@@ -29,6 +29,7 @@ char buf[MAXDATASIZE];    // TODO: Localise... Craps itself when I (A) try
 pid_t pids[MAXCLIENTS];
 int clients_status[MAXCLIENTS];
 int clients_active = 0;
+client_t client;          // This is so that the parent process can kill the child
 
 // Shared memory address shortcut pointers
 msgnode_t **messages;       // Array of pointers to msg_t node heads
@@ -67,9 +68,8 @@ int main(int argc, char **argv) {
 
             clients_active++;
             clients_status[clients_active-1] = 1;
-            client_t client;
             client_setup(&client, clients_active-1);
-            signal(SIGINT, handleChildSIGINT);
+            //signal(SIGINT, handleChildSIGINT);
             client_processing(&client, pids[clients_active-1]); // Loops
 
         } else if (pids[clients_active] > 0) { 
@@ -483,10 +483,20 @@ void sendMsg(int channel_id, client_t *client, char *message) {
 
 
 int bye(client_t *client, pid_t closing_process) {
-    close(client->socket); // Close socket on server side
-    kill(closing_process, SIGTERM); // Stop server process handling client that was closed
-    printf("Client disconnected2.\n");
+    childClose(client->id);
+    //printf("Client disconnected2.\n");
     return 0; // Required to stop server signal
+}
+
+void childClose(int pid) {
+    pthread_rwlock_destroy(&rwlock_messages);
+    pthread_rwlock_destroy(&rwlock_counts);
+
+    close(new_fd);
+    printf("PID: %d\n", pid);
+    kill(pid, SIGKILL); // Child processes close themselves
+    printf("Client disconnected\n");
+    exit(1);
 }
 
 
@@ -519,23 +529,10 @@ void handleSIGINT(int _) {
 
     // Child processes terminate themselves
     for (int i = 0; i < MAXCLIENTS; i++) {
-        kill(pids[i], SIGTERM);
+        childClose(pids[i]);
     }
     exit(1);
 }
-
-void handleChildSIGINT(int _) {
-    (void)_; // To stop the compiler complaining
-    
-    pthread_rwlock_destroy(&rwlock_messages);
-    pthread_rwlock_destroy(&rwlock_counts);
-
-    close(sockfd); close(new_fd);
-    kill(getpid(), SIGTERM); // Child processes close themselves
-    exit(1);
-}
-
-
 // Linked list / data structure methods //
 // No locks in the following as all locks surround the calls to the below functions
 
