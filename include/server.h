@@ -14,7 +14,7 @@ void setupSharedMem();
 /* Handles SIGINT signal to gracefully exit after crtl+c */
 void handleSIGINT();
 void handleChildSIGINT(int _);
-void childClose(int pid);
+void childClose();
 
 /* Client command paring */
 void decode_command(client_t *client, char *command, int *channel_id, char *message);
@@ -47,7 +47,7 @@ void nextChannel(int channel_id, client_t *client);
 void sendMsg(int channel_id, client_t *client, char *message);
 
 /* Disconnect CLIENT from the server */
-int bye(client_t *client, pid_t closing_process);
+int bye(client_t *client);
 
 
 // Data structure methods //

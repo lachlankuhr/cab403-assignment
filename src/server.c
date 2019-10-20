@@ -29,14 +29,14 @@ char buf[MAXDATASIZE];    // TODO: Localise... Craps itself when I (A) try
 pid_t pids[MAXCLIENTS];
 int clients_status[MAXCLIENTS];
 int clients_active = 0;
-client_t client;          // This is so that the parent process can kill the child
 
 // Shared memory address shortcut pointers
 msgnode_t **messages;       // Array of pointers to msg_t node heads
 msgnode_t *messages_nodes;  // Array of all msg_t nodes
 msg_t *messages_msg;        // Array of all msg_t messages
 int *messages_counts;       // Array of msg counts by channel, last index is total
-int smfd1, smfd2, smfd3, smfd4;           // SHM handle IDs
+
+int smfd1, smfd2, smfd3, smfd4;          // SHM handle IDs
 pthread_rwlock_t rwlock_messages;
 pthread_rwlock_t rwlock_counts;
 
@@ -65,16 +65,16 @@ int main(int argc, char **argv) {
 
         pids[clients_active] = fork();
         if (pids[clients_active] == 0) {
-
+            signal(SIGINT, childClose);
             clients_active++;
             clients_status[clients_active-1] = 1;
+            client_t client;
             client_setup(&client, clients_active-1);
             //signal(SIGINT, handleChildSIGINT);
             client_processing(&client, pids[clients_active-1]); // Loops
 
         } else if (pids[clients_active] > 0) { 
             // Parent continues to look for new connections in above while loop section.
-            printf("%d\n", pids[clients_active]); fflush(stdout);
             clients_active++;
 
         } else {
@@ -257,7 +257,7 @@ void client_processing(client_t *client, pid_t current_process) {
             sendMsg(channel_id, client, message);
 
         } else if (strcmp(command, "BYE") == 0 && channel_id == -1) {
-            run = bye(client, current_process);
+            run = bye(client/*, current_process*/);
 
         } else {
             if (strtok(command, "\n") != NULL) { // Important to prevent the no command entered and invalid command printing
@@ -482,20 +482,18 @@ void sendMsg(int channel_id, client_t *client, char *message) {
 }
 
 
-int bye(client_t *client, pid_t closing_process) {
-    childClose(client->id);
-    //printf("Client disconnected2.\n");
+int bye(client_t *client) {
+    childClose();
     return 0; // Required to stop server signal
 }
 
-void childClose(int pid) {
+void childClose() {
     pthread_rwlock_destroy(&rwlock_messages);
     pthread_rwlock_destroy(&rwlock_counts);
 
     close(new_fd);
-    printf("PID: %d\n", pid);
-    kill(pid, SIGKILL); // Child processes close themselves
     printf("Client disconnected\n");
+    kill(getpid(), SIGTERM); // Child processes close themselves
     exit(1);
 }
 
@@ -527,10 +525,8 @@ void handleSIGINT(int _) {
     // Close sockets
     close(sockfd); close(new_fd);
 
-    // Child processes terminate themselves
-    for (int i = 0; i < MAXCLIENTS; i++) {
-        childClose(pids[i]);
-    }
+    // Kill all process
+    kill(0, SIGTERM);
     exit(1);
 }
 // Linked list / data structure methods //
