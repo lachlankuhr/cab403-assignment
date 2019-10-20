@@ -31,7 +31,7 @@ void next(char * command);
 void livefeed();
 
 /* LIVEFEED command issued (with a channel ID) and thread setup */
-void livefeedChannel(int channel_id);
+void livefeedChannel(long channel_id);
 
 /* Closes all active threads */
 void closeThreads();
