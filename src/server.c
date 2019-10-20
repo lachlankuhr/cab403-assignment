@@ -60,6 +60,12 @@ int main(int argc, char **argv) {
         
         if (clients_active+1 > MAXCLIENTS) {
             printf("Maximum client connections reached, please restart\n");
+            // Respond to client with welcome and choose client ID
+            char msg[MAXDATASIZE] = "Maximum clients reached, connection declined\n";
+
+            if (send(new_fd, msg, MAXDATASIZE, 0) == -1) {
+                perror("send");
+            }
             continue;
         }
 

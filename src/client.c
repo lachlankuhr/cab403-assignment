@@ -12,7 +12,7 @@
 
 #define MAXDATASIZE 30000 // Needs to be high
 #define COMMANDSIZE 50
-#define MAX_THREADS 3
+#define MAX_THREADS 20
 
 // Globals - Socket and threading
 int sockfd;
@@ -181,6 +181,12 @@ void startClient(int argc, char **argv) {
 
 	buf[numbytes] = '\0';
 	printf("%s", buf);
+
+    // Check if refused due to exceeding max clients
+    if (strncmp("Maximum\n", buf, 7) == 0) {
+        closeConnection();
+    }
+
 
     // Initisialse thread states
     for (int i = 0; i < MAX_THREADS; i++) {
