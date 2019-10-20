@@ -16,6 +16,9 @@ void handleSIGINT();
 void handleChildSIGINT(int _);
 void childClose();
 
+/* Handles closing zombie processes */
+void handleSIGCHLD(int signum); 
+
 /* Client command paring */
 void decode_command(client_t *client, char *command, int *channel_id, char *message);
 

@@ -43,6 +43,7 @@ pthread_rwlock_t rwlock_counts;
 int main(int argc, char **argv) {
     // Setup the signal handling for SIGINT signal
     signal(SIGINT, handleSIGINT);
+    signal(SIGCHLD, handleSIGCHLD);
     setupSharedMem();
     
     // Start the server
@@ -51,7 +52,11 @@ int main(int argc, char **argv) {
     socklen_t sin_size;
 
     while (1) {
-        // Keeep checking for new connections
+        // Kill all zombie processes
+        int stat;
+        while(waitpid(-1, &stat, WNOHANG) > 0);
+
+        // Keep checking for new connections
         sin_size = sizeof(struct sockaddr_in);
 		if ((new_fd = accept(sockfd, (struct sockaddr*)&client_addr, &sin_size)) == -1) {
 			perror("accept");
@@ -531,6 +536,13 @@ void handleSIGINT(int _) {
 }
 // Linked list / data structure methods //
 // No locks in the following as all locks surround the calls to the below functions
+
+void handleSIGCHLD(int signum) {
+  int stat;
+
+  /*Kills all the zombie processes*/
+  while(waitpid(-1, &stat, WNOHANG) > 0);
+}
 
 msgnode_t* node_add(msgnode_t *head, msg_t *message) {
     // create new node to add to list
