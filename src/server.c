@@ -16,7 +16,7 @@
 #include "server.h"
 
 #define BACKLOG 5              // How many pending connections queue will hold
-#define MAXDATASIZE 30000
+#define MAXDATASIZE 2048
 #define MAXMESSAGES 1000
 #define MAXMESSAGELENGTH 1024
 #define NUMCHANNELS 256 // 0 to 255
@@ -193,11 +193,17 @@ void startServer(int argc, char **argv) {
 
 
 int setServerPort(int argc, char **argv) {
-    int port_number = 12345;                   // DON'T FORGET THIS IS HARDCODED
-    if (argc > 1) {
-        port_number = atoi(argv[1]);
+    if (argc != 2) {
+        printf("Please enter a port number to connect.\n");
+        exit(-1);
+    } else {
+        if (isNumber(argv[1])) {
+            return atoi(argv[1]); // Port number
+        } else {
+            printf("Please enter a valid port number.\n");
+            exit(-1);
+        }
     }
-    return port_number;
 }
 
 
@@ -320,7 +326,7 @@ void decode_command(client_t *client, char *command, int *channel_id, char *mess
 void subscribe(int channel_id, client_t *client) {
     char return_msg[MAXDATASIZE];
     if (channel_id < 0 || channel_id > 255) {
-        sprintf(return_msg, "Invalid channel: %d.\n", channel_id); // TODO: Consider if showing -1 is good enough when a string is entered?
+        sprintf(return_msg, "Invalid channel: %d.\n", channel_id);
     
     } else if (client->channels[channel_id].subscribed == 1) {
         sprintf(return_msg, "Already subscribed to channel %d.\n", channel_id);
@@ -329,9 +335,9 @@ void subscribe(int channel_id, client_t *client) {
         sprintf(return_msg, "Subscribed to channel %d.\n", channel_id);
         client->channels[channel_id].subscribed = 1;
 
-        pthread_rwlock_rdlock(&rwlock_messages);
-        client->read_msg[channel_id] = messages[channel_id]; // last message in the channel - want to track read messages
-        pthread_rwlock_unlock(&rwlock_messages);
+        pthread_rwlock_rdlock(&rwlock_messages); // Read lock
+        client->read_msg[channel_id] = messages[channel_id]; // Point client at last message in the channel
+        pthread_rwlock_unlock(&rwlock_messages); // Unlock
     }
 
     if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
@@ -347,10 +353,10 @@ void channels(client_t *client) {
     for (int channel_id = 0; channel_id < NUMCHANNELS; channel_id++) {
         if (client->channels[channel_id].subscribed == 1) {
 
-            pthread_rwlock_wrlock(&rwlock_counts);
+            pthread_rwlock_rdlock(&rwlock_counts); // Read lock
             sprintf(buf, "%d\t%ld\t%d\t%d\n", channel_id, (long)messages_counts[channel_id],
                 client->channels[channel_id].read, get_number_unread_messages(channel_id, client));
-            pthread_rwlock_unlock(&rwlock_counts);
+            pthread_rwlock_unlock(&rwlock_counts); // Unlock
             strcat(return_msg, buf);
         }
     }
@@ -388,20 +394,21 @@ void next(client_t *client) {
     for (int channel_id = 0; channel_id <  NUMCHANNELS; channel_id++) {
         if (client->channels[channel_id].subscribed == 1) {
             client_subscribed_to_any_channel = 1;
-            pthread_rwlock_wrlock(&rwlock_messages);
 
+            pthread_rwlock_wrlock(&rwlock_messages); // Write lock
             msg_t *message = get_next_message(channel_id, client); // just get and not move head forward
-            pthread_rwlock_unlock(&rwlock_messages);
+            pthread_rwlock_unlock(&rwlock_messages); // Unlock
 
-            pthread_rwlock_rdlock(&rwlock_messages);
-            if (message != NULL) { // could use short circuiting
+            pthread_rwlock_rdlock(&rwlock_messages); // Read lock
+            // Make sure the oldest available message is returned
+            if (message != NULL) {
                 if (message->time < min_time) {
                     min_time = message->time;
                     next_msg = message;
                     next_channel = channel_id;
                 }
             }
-            pthread_rwlock_unlock(&rwlock_messages);
+            pthread_rwlock_unlock(&rwlock_messages); // Unlock
         }
     }
 
@@ -409,12 +416,12 @@ void next(client_t *client) {
         sprintf(return_msg, "Not subscribed to any channels.\n");
     
     } else if (next_msg == NULL) {
-        return_msg[0] = 0; // empty string
+        return_msg[0] = 0; // Empty string
     
     } else {
-        pthread_rwlock_wrlock(&rwlock_messages);
-        read_message(next_channel, client); // move head foward
-        pthread_rwlock_unlock(&rwlock_messages);
+        pthread_rwlock_rdlock(&rwlock_messages); // Read lock
+        read_message(next_channel, client); // Move head foward
+        pthread_rwlock_unlock(&rwlock_messages); // Unlock
         sprintf(return_msg, "%d:%s\n", next_channel, next_msg->string);  
     }
     if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
@@ -434,14 +441,14 @@ void nextChannel(int channel_id, client_t *client) {
         sprintf(return_msg, "Not subscribed to channel %d\n", channel_id);
     
     } else {
-        pthread_rwlock_wrlock(&rwlock_messages);
+        pthread_rwlock_wrlock(&rwlock_messages); // Write (and read) lock
         message_to_read = read_message(channel_id, client);
         if (message_to_read == NULL) {
             return_msg[0] = 0;
         } else {
             sprintf(return_msg, "%d:%s\n", channel_id, message_to_read->string); 
         }
-        pthread_rwlock_unlock(&rwlock_messages);
+        pthread_rwlock_unlock(&rwlock_messages); // Unlock
     }
 
     if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
@@ -454,18 +461,15 @@ void sendMsg(int channel_id, client_t *client, char *message) {
     // Check for invalid channel
     char return_msg[MAXDATASIZE];
     
-    pthread_rwlock_wrlock(&rwlock_messages);
+    pthread_rwlock_rdlock(&rwlock_messages); // Read lock
     msg_t *msg_struct = &messages_msg[messages_counts[NUMCHANNELS]]; // Points
     memcpy(msg_struct->string, message, MAXMESSAGELENGTH);
     msg_struct->user = client->id;
     msg_struct->time = time(NULL);
-    pthread_rwlock_unlock(&rwlock_messages);
+    pthread_rwlock_unlock(&rwlock_messages); // Unlock
 
     // Increment channel ID count and total count
-    pthread_rwlock_rdlock(&rwlock_counts);
-    messages_counts[channel_id]++;
-    messages_counts[NUMCHANNELS]++;
-    pthread_rwlock_unlock(&rwlock_counts);
+
 
     if (channel_id < 0 || channel_id > 255) {
         sprintf(return_msg, "Invalid channel: %d\n", channel_id);
@@ -473,9 +477,13 @@ void sendMsg(int channel_id, client_t *client, char *message) {
             perror("send");
         }
     }
+    pthread_rwlock_wrlock(&rwlock_counts); // Write lock to message counts shm
+    messages_counts[channel_id]++;
+    messages_counts[NUMCHANNELS]++;
+    pthread_rwlock_unlock(&rwlock_counts); // Unlock
 
     // Construct the node for the linked list
-    pthread_rwlock_wrlock(&rwlock_messages);
+    pthread_rwlock_wrlock(&rwlock_messages); // Write lock to messages shm
     msgnode_t *newhead = node_add(messages[channel_id], msg_struct);
 
     if (newhead == NULL) {
@@ -483,7 +491,7 @@ void sendMsg(int channel_id, client_t *client, char *message) {
         exit(EXIT_FAILURE);
     }
     messages[channel_id] = newhead;
-    pthread_rwlock_unlock(&rwlock_messages);
+    pthread_rwlock_unlock(&rwlock_messages); // Unlock
     
     // Send back nothing because otherwise its blocking
     if (send(client->socket, "", MAXDATASIZE, 0) == -1) {

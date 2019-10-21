@@ -1,8 +1,9 @@
 #include <time.h>
 #include <stdbool.h>
+#include <ctype.h>
 
-#define NUMCHANNELS 256
-#define MAXMESSAGELENGTH 1024
+#define NUMCHANNELS 256         // Channels 0-255
+#define MAXMESSAGELENGTH 1024   // Max bytes
 
 /* Messages
  * Messages are stored in a linked list
@@ -47,3 +48,17 @@ struct thread_args {
     int channel;
     int id;
 };
+
+/* Used to determine whether a user input is a valid integer */
+bool isNumber(char number[]) {
+    int i = 0;
+
+    // Checking for negative numbers
+    if (number[0] == '-') i = 1;
+
+    for (; number[i] != 0; i++) {
+        if (!isdigit(number[i]))
+            return false;
+    }
+    return true;
+}

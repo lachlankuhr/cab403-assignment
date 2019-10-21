@@ -19,13 +19,13 @@ void closeConnection();
 // Client threading methods //
 
 /* Thread function for NEXT command */
-void *nextThreadFunc(void *channel);
+void* nextThreadFunc(void *channel);
 
 /* Thread function for LIVEFEED command */
-void *livefeedThreadFunc(void *channel);
+void* livefeedThreadFunc(void *channel);
 
 /* NEXT command issued and thread setup */
-void next(char * command);
+void next(char *command);
 
 /* LIVEFEED command issued and thread setup */
 void livefeed();

@@ -53,7 +53,7 @@ void sendMsg(int channel_id, client_t *client, char *message);
 int bye(client_t *client);
 
 
-// Data structure methods //
+// Data structure use and storage methods //
 
 /* Add message to the linked list */
 msgnode_t* node_add(msgnode_t *head, msg_t *message);

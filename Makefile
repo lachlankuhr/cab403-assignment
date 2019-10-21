@@ -1,5 +1,5 @@
 # Makefile for client server program
-CFLAGS=-Wall -O2
+CFLAGS=-Wall -O2 #-pedantic
 
 # Target to compile and build both client and server
 all: clean server client
