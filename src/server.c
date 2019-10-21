@@ -326,7 +326,7 @@ void decode_command(client_t *client, char *command, long *channel_id, char *mes
 void subscribe(long channel_id, client_t *client) {
     char return_msg[MAXDATASIZE];
     if (channel_id < 0 || channel_id > 255) {
-        sprintf(return_msg, "Invalid channel: %d.\n", channel_id);
+        sprintf(return_msg, "Invalid channel: %ld.\n", channel_id);
     
     } else if (client->channels[channel_id].subscribed == 1) {
         sprintf(return_msg, "Already subscribed to channel %ld.\n", channel_id);
@@ -354,7 +354,7 @@ void channels(client_t *client) {
         if (client->channels[channel_id].subscribed == 1) {
 
             pthread_rwlock_rdlock(&rwlock_counts); // Read lock
-            sprintf(buf, "%d\t%ld\t%d\t%d\n", channel_id, (long)messages_counts[channel_id],
+            sprintf(buf, "%ld\t%ld\t%d\t%d\n", channel_id, (long)messages_counts[channel_id],
                 client->channels[channel_id].read, get_number_unread_messages(channel_id, client));
             pthread_rwlock_unlock(&rwlock_counts); // Unlock
             strcat(return_msg, buf);
