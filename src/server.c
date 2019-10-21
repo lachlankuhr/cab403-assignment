@@ -231,7 +231,7 @@ void client_setup(client_t *client, int client_id) {
 
 void client_processing(client_t *client, pid_t current_process) {
     // What each process loops around while client active
-    int channel_id;
+    long channel_id;
     int run = 1;
     int numbytes;
 
@@ -287,7 +287,7 @@ void client_processing(client_t *client, pid_t current_process) {
 }
 
 
-void decode_command(client_t *client, char *command, int *channel_id, char *message) {
+void decode_command(client_t *client, char *command, long *channel_id, char *message) {
     char original[MAXDATASIZE];
     strcpy(original, command);
 
@@ -323,16 +323,16 @@ void decode_command(client_t *client, char *command, int *channel_id, char *mess
 }
 
 
-void subscribe(int channel_id, client_t *client) {
+void subscribe(long channel_id, client_t *client) {
     char return_msg[MAXDATASIZE];
     if (channel_id < 0 || channel_id > 255) {
         sprintf(return_msg, "Invalid channel: %d.\n", channel_id);
     
     } else if (client->channels[channel_id].subscribed == 1) {
-        sprintf(return_msg, "Already subscribed to channel %d.\n", channel_id);
+        sprintf(return_msg, "Already subscribed to channel %ld.\n", channel_id);
     
     } else {
-        sprintf(return_msg, "Subscribed to channel %d.\n", channel_id);
+        sprintf(return_msg, "Subscribed to channel %ld.\n", channel_id);
         client->channels[channel_id].subscribed = 1;
 
         pthread_rwlock_rdlock(&rwlock_messages); // Read lock
@@ -350,7 +350,7 @@ void channels(client_t *client) {
     char return_msg[MAXDATASIZE];
     strcpy(return_msg, "");
     
-    for (int channel_id = 0; channel_id < NUMCHANNELS; channel_id++) {
+    for (long channel_id = 0; channel_id < NUMCHANNELS; channel_id++) {
         if (client->channels[channel_id].subscribed == 1) {
 
             pthread_rwlock_rdlock(&rwlock_counts); // Read lock
@@ -366,16 +366,16 @@ void channels(client_t *client) {
 }
 
 
-void unsubscribe(int channel_id, client_t *client) {
+void unsubscribe(long channel_id, client_t *client) {
     char return_msg[MAXDATASIZE];
     if (channel_id < 0 || channel_id > 255) {
-        sprintf(return_msg, "Invalid channel: %d\n", channel_id);
+        sprintf(return_msg, "Invalid channel: %ld\n", channel_id);
     
     } else if (client->channels[channel_id].subscribed == 0) {
-        sprintf(return_msg, "Not subscribed to channel %d\n", channel_id);
+        sprintf(return_msg, "Not subscribed to channel %ld\n", channel_id);
     
     } else {
-        sprintf(return_msg, "Unsubscribed from channel %d\n", channel_id);
+        sprintf(return_msg, "Unsubscribed from channel %ld\n", channel_id);
         client->channels[channel_id].subscribed = 0;
     }
     if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
@@ -391,7 +391,7 @@ void next(client_t *client) {
     msg_t *next_msg = NULL;
     int client_subscribed_to_any_channel = 0;
 
-    for (int channel_id = 0; channel_id <  NUMCHANNELS; channel_id++) {
+    for (long channel_id = 0; channel_id <  NUMCHANNELS; channel_id++) {
         if (client->channels[channel_id].subscribed == 1) {
             client_subscribed_to_any_channel = 1;
 
@@ -430,15 +430,15 @@ void next(client_t *client) {
 }
 
 
-void nextChannel(int channel_id, client_t *client) {
+void nextChannel(long channel_id, client_t *client) {
     char return_msg[MAXDATASIZE];
     msg_t *message_to_read;
     
     if (channel_id < 0 || channel_id > 255) {
-        sprintf(return_msg, "Invalid channel: %d\n", channel_id);
+        sprintf(return_msg, "Invalid channel: %ld\n", channel_id);
     
     } else if (client->channels[channel_id].subscribed == 0) {
-        sprintf(return_msg, "Not subscribed to channel %d\n", channel_id);
+        sprintf(return_msg, "Not subscribed to channel %ld\n", channel_id);
     
     } else {
         pthread_rwlock_wrlock(&rwlock_messages); // Write (and read) lock
@@ -446,7 +446,7 @@ void nextChannel(int channel_id, client_t *client) {
         if (message_to_read == NULL) {
             return_msg[0] = 0;
         } else {
-            sprintf(return_msg, "%d:%s\n", channel_id, message_to_read->string); 
+            sprintf(return_msg, "%ld:%s\n", channel_id, message_to_read->string); 
         }
         pthread_rwlock_unlock(&rwlock_messages); // Unlock
     }
@@ -457,7 +457,7 @@ void nextChannel(int channel_id, client_t *client) {
 }
 
 
-void sendMsg(int channel_id, client_t *client, char *message) {
+void sendMsg(long channel_id, client_t *client, char *message) {
     // Check for invalid channel
     char return_msg[MAXDATASIZE];
     
@@ -472,7 +472,7 @@ void sendMsg(int channel_id, client_t *client, char *message) {
 
 
     if (channel_id < 0 || channel_id > 255) {
-        sprintf(return_msg, "Invalid channel: %d\n", channel_id);
+        sprintf(return_msg, "Invalid channel: %ld\n", channel_id);
         if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
             perror("send");
         }
@@ -572,7 +572,7 @@ msgnode_t* node_add(msgnode_t *head, msg_t *message) {
 }
 
 
-msg_t* read_message(int channel_id, client_t *client) {
+msg_t* read_message(long channel_id, client_t *client) {
     
     msgnode_t *last_read = client->read_msg[channel_id]; // current last read message
     msgnode_t *curr_head = messages[channel_id]; // current head, need to keep moving it back
@@ -594,7 +594,7 @@ msg_t* read_message(int channel_id, client_t *client) {
 }
 
 
-msg_t* get_next_message(int channel_id, client_t *client) {
+msg_t* get_next_message(long channel_id, client_t *client) {
 
     msgnode_t *last_read = client->read_msg[channel_id]; // current last read message
     msgnode_t *curr_head = messages[channel_id]; // current head, need to keep moving it back
@@ -609,7 +609,7 @@ msg_t* get_next_message(int channel_id, client_t *client) {
 }
 
 
-int get_number_unread_messages(int channel_id, client_t *client) {
+int get_number_unread_messages(long channel_id, client_t *client) {
     msgnode_t *last_read = client->read_msg[channel_id]; // current last read message
     msgnode_t *curr_head = messages[channel_id]; // current head, need to keep moving it back
     int number_unread = 0;
