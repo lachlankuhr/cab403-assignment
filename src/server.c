@@ -194,8 +194,7 @@ void startServer(int argc, char **argv) {
 
 int setServerPort(int argc, char **argv) {
     if (argc != 2) {
-        printf("Please enter a port number to connect.\n");
-        exit(-1);
+        return 12345;
     } else {
         if (isNumber(argv[1])) {
             return atoi(argv[1]); // Port number
