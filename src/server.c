@@ -371,10 +371,10 @@ void unsubscribe(long channel_id, client_t *client) {
         sprintf(return_msg, "Invalid channel: %ld.\n", channel_id);
     
     } else if (client->channels[channel_id].subscribed == 0) {
-        sprintf(return_msg, "Not subscribed to channel %ld\n", channel_id);
+        sprintf(return_msg, "Not subscribed to channel %ld.\n", channel_id);
     
     } else {
-        sprintf(return_msg, "Unsubscribed from channel %ld\n", channel_id);
+        sprintf(return_msg, "Unsubscribed from channel %ld.\n", channel_id);
         client->channels[channel_id].subscribed = 0;
     }
     if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
