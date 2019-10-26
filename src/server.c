@@ -434,10 +434,10 @@ void nextChannel(long channel_id, client_t *client) {
     msg_t *message_to_read;
     
     if (channel_id < 0 || channel_id > 255) {
-        sprintf(return_msg, "Invalid channel: %ld\n", channel_id);
+        sprintf(return_msg, "Invalid channel: %ld.\n", channel_id);
     
     } else if (client->channels[channel_id].subscribed == 0) {
-        sprintf(return_msg, "Not subscribed to channel %ld\n", channel_id);
+        sprintf(return_msg, "Not subscribed to channel %ld.\n", channel_id);
     
     } else {
         pthread_rwlock_wrlock(&rwlock_messages); // Write (and read) lock
@@ -471,7 +471,7 @@ void sendMsg(long channel_id, client_t *client, char *message) {
 
 
     if (channel_id < 0 || channel_id > 255) {
-        sprintf(return_msg, "Invalid channel: %ld\n", channel_id);
+        sprintf(return_msg, "Invalid channel: %ld.\n", channel_id);
         if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
             perror("send");
         }
