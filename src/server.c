@@ -368,7 +368,7 @@ void channels(client_t *client) {
 void unsubscribe(long channel_id, client_t *client) {
     char return_msg[MAXDATASIZE];
     if (channel_id < 0 || channel_id > 255) {
-        sprintf(return_msg, "Invalid channel: %ld\n", channel_id);
+        sprintf(return_msg, "Invalid channel: %ld.\n", channel_id);
     
     } else if (client->channels[channel_id].subscribed == 0) {
         sprintf(return_msg, "Not subscribed to channel %ld\n", channel_id);
