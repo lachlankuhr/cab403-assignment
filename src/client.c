@@ -15,9 +15,9 @@
 #define MAX_THREADS 20
 
 // Globals - Socket and threading
-int sockfd;
-int thread_states[MAX_THREADS];
-pthread_t threads[MAX_THREADS];
+int sockfd;                     // Connection to server
+int thread_states[MAX_THREADS]; // Status of any threads created
+pthread_t threads[MAX_THREADS]; // Threads created for NEXT or LIVEFEED
 pthread_mutex_t socket_lock; // Setup socket lock to ensure clients synced
 
 int main(int argc, char **argv) {

@@ -17,15 +17,17 @@
 
 #define BACKLOG 5              // How many pending connections queue will hold
 #define MAXDATASIZE 2048
-#define MAXMESSAGES 1000
-#define MAXMESSAGELENGTH 1024
-#define NUMCHANNELS 256 // 0 to 255
-#define MAXCLIENTS 20
+#define MAXMESSAGES 1000        // Max messages that can be stored
+#define MAXMESSAGELENGTH 1024   // Ensure messages max size
+#define NUMCHANNELS 256         // 0 to 255
+#define MAXCLIENTS 20           // At least 10 clients can connect
 
 
 // Global variables
 int sockfd, new_fd;       // Listen on sock_fd, new connection on new_fd
-char buf[MAXDATASIZE];    // TODO: Localise... Craps itself when I (A) try
+char buf[MAXDATASIZE];
+
+// Track forked processes and status of clients connected
 pid_t pids[MAXCLIENTS];
 int clients_status[MAXCLIENTS];
 int clients_active = 0;
@@ -35,9 +37,9 @@ msgnode_t **messages;       // Array of pointers to msg_t node heads
 msgnode_t *messages_nodes;  // Array of all msg_t nodes
 msg_t *messages_msg;        // Array of all msg_t messages
 int *messages_counts;       // Array of msg counts by channel, last index is total
+int smfd1, smfd2, smfd3, smfd4, smfd5;  // SHM handle IDs
+pthread_rwlock_t *rw_msg_locks;         // Reader-writer locks on memory segments
 
-int smfd1, smfd2, smfd3, smfd4, smfd5;          // SHM handle IDs
-pthread_rwlock_t *rw_msg_locks;
 
 int main(int argc, char **argv) {
     // Setup the signal handling for SIGINT signal
@@ -51,7 +53,7 @@ int main(int argc, char **argv) {
     socklen_t sin_size;
 
     while (1) {
-        // Kill all zombie processes
+        // Kill any zombie processes
         int stat;
         while(waitpid(-1, &stat, WNOHANG) > 0);
 
@@ -62,6 +64,7 @@ int main(int argc, char **argv) {
 		}
 		printf("Server: got connection from %s\n", inet_ntoa(client_addr.sin_addr));
         
+        // Check if maximum clients reached
         if (clients_active+1 > MAXCLIENTS) {
             printf("Maximum client connections reached, please restart\n");
             // Respond to client with welcome and choose client ID
@@ -73,15 +76,21 @@ int main(int argc, char **argv) {
             continue;
         }
 
+        // FORK a new process to handle newly connected client
         pids[clients_active] = fork();
         if (pids[clients_active] == 0) {
-            signal(SIGINT, childClose);
+            
+            // Update appropriate tracking variables 
             clients_active++;
             clients_status[clients_active-1] = 1;
+
+            // Setup new client
+            signal(SIGINT, childClose);
             client_t client;
             client_setup(&client, clients_active-1);
-            //signal(SIGINT, handleChildSIGINT);
-            client_processing(&client, pids[clients_active-1]); // Loops
+
+            // Enter main client loop
+            client_processing(&client, pids[clients_active-1]);
 
         } else if (pids[clients_active] > 0) { 
             // Parent continues to look for new connections in above while loop section.
@@ -92,13 +101,14 @@ int main(int argc, char **argv) {
             printf("fork() failed\n");
             return -1;
         }
-    } // Can't leave while loop without SIGINT
+    } // Can't leave while loop without SIGINT (Ctrl+c)
     return 0;
 }
 
 
 void setupSharedMem() {
 
+    // Determine correct sizes of shared memory segments needed
     size_t size1 = NUMCHANNELS * sizeof(msgnode_t*);
     size_t size2 = MAXMESSAGES * sizeof(msgnode_t);
     size_t size3 = MAXMESSAGES * sizeof(msg_t);
@@ -119,7 +129,7 @@ void setupSharedMem() {
     ftruncate(smfd4, size4);
     ftruncate(smfd5, size5);
 
-    // Map objects
+    // Map object addresses to shared memory location
     messages = mmap(NULL, size1, PROT_READ | PROT_WRITE, MAP_SHARED, smfd1, 0); // Must be in SHM (by experimentation)
     messages_nodes = mmap(NULL, size2, PROT_READ | PROT_WRITE, MAP_SHARED, smfd2, 0);
     messages_msg = mmap(NULL, size3, PROT_READ | PROT_WRITE, MAP_SHARED, smfd3, 0);
@@ -140,7 +150,7 @@ void setupSharedMem() {
         messages_counts[i] = 0;
     }
 
-    // Initialise reader writer locks
+    // Initialise reader writer locks. NULL attributes.
     // First lock for messages, second lock for messages_counts
     pthread_rwlock_init(&rw_msg_locks[0], NULL);
     pthread_rwlock_init(&rw_msg_locks[1], NULL);
@@ -187,6 +197,7 @@ void startServer(int argc, char **argv) {
 		exit(0);
 	}
 
+    // Initialise clients_statuses to 0 as none connected yet
     for (int i = 0; i < clients_active; i++) {
         clients_status[i] = 0;
     }
@@ -196,6 +207,7 @@ void startServer(int argc, char **argv) {
 
 
 int setServerPort(int argc, char **argv) {
+    // Parse server port or return default
     if (argc != 2) {
         return 12345;
     } else {
@@ -224,7 +236,6 @@ void client_setup(client_t *client, int client_id) {
 
     sprintf(id, "%d.\n", client_id);
     strcat(msg, id);
-
     if (send(client->socket, msg, MAXDATASIZE, 0) == -1) {
         perror("send");
     }
@@ -251,11 +262,12 @@ void client_processing(client_t *client, pid_t current_process) {
             printf("Disconnect detected.\n");
             break;
         }
-        char *command = buf;
 
+        // Decode / parse command received
+        char *command = buf;
         decode_command(client, command, &channel_id, message);
 
-        // Handle commands
+        // Handle commands and call appropriate functions
         if (strcmp(command, "SUB") == 0) {
             subscribe(channel_id, client);
 
@@ -293,31 +305,35 @@ void decode_command(client_t *client, char *command, long *channel_id, char *mes
     char original[MAXDATASIZE];
     strcpy(original, command);
 
-    if (strtok(command, "\n") == NULL) { // No command
+    // Check if no command entered at all
+    if (strtok(command, "\n") == NULL) {
         if (send(client->socket, "No command entered\n", MAXDATASIZE, 0) == -1) {
             perror("send");
         }
         return;
     }
 
-    char *sep = strtok(command, " ");   // Separate command from arguments
+    // Separate main command from extra arguments
+    char *sep = strtok(command, " ");
     sep = strtok(NULL, " ");
 
-    if (sep != NULL) {  // Get channel ID
-        // Reset errno to 0 before call 
-        errno = 0;
+    // Grab the channel ID if entered
+    if (sep != NULL) {
+        errno = 0;  // Reset errno to 0 before call 
 
         // Call to strtol assigning return to number
         char *endptr = NULL;
         *channel_id = strtol(sep, &endptr, 10);
         
+        // Check if a valid channel ID was entered (else set to -1)
         if (sep == endptr || errno == EINVAL || (errno != 0 && *channel_id == 0) 
         || (errno == 0 && sep && *endptr != 0) || errno == ERANGE) {
             *channel_id = -1;
         }
         sep = strtok(NULL, ""); // this SHOULD be "" instead of " ". It gets the rest of the message.
     } 
-    if (sep != NULL) { // Get msg (for send only)
+    // Grab an entered message (for send)
+    if (sep != NULL) {
         strcpy(message, sep);
     } else {
         strcpy(message, "");
@@ -326,13 +342,17 @@ void decode_command(client_t *client, char *command, long *channel_id, char *mes
 
 
 void subscribe(long channel_id, client_t *client) {
+    // Subscrubes the client to a channel
     char return_msg[MAXDATASIZE];
+
+    // Check if valid channel, and not already subscribed
     if (channel_id < 0 || channel_id > 255) {
         sprintf(return_msg, "Invalid channel: %ld.\n", channel_id);
     
     } else if (client->channels[channel_id].subscribed == 1) {
         sprintf(return_msg, "Already subscribed to channel %ld.\n", channel_id);
     
+    // Else subscribe to the channel
     } else {
         sprintf(return_msg, "Subscribed to channel %ld.\n", channel_id);
         client->channels[channel_id].subscribed = 1;
@@ -341,7 +361,7 @@ void subscribe(long channel_id, client_t *client) {
         client->read_msg[channel_id] = messages[channel_id]; // Point client at last message in the channel
         pthread_rwlock_unlock(&rw_msg_locks[0]); // Unlock
     }
-
+    // Inform client
     if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
         perror("send");
     }
@@ -349,9 +369,11 @@ void subscribe(long channel_id, client_t *client) {
 
 
 void channels(client_t *client) {
+    // Client requested subscribed to channel information
     char return_msg[MAXDATASIZE];
     strcpy(return_msg, "");
     
+    // Find which channels are subscribed to and return information in spec
     for (long channel_id = 0; channel_id < NUMCHANNELS; channel_id++) {
         if (client->channels[channel_id].subscribed == 1) {
 
@@ -362,6 +384,7 @@ void channels(client_t *client) {
             strcat(return_msg, buf);
         }
     }
+    // Inform client
     if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
         perror("send");
     }
@@ -369,17 +392,22 @@ void channels(client_t *client) {
 
 
 void unsubscribe(long channel_id, client_t *client) {
+    // Unsubscribe client from specified channel
     char return_msg[MAXDATASIZE];
+
+    // Check if valid channel, and are currently subscribed
     if (channel_id < 0 || channel_id > 255) {
         sprintf(return_msg, "Invalid channel: %ld.\n", channel_id);
     
     } else if (client->channels[channel_id].subscribed == 0) {
         sprintf(return_msg, "Not subscribed to channel %ld.\n", channel_id);
     
+    // Else unsubscribe client from the channel
     } else {
         sprintf(return_msg, "Unsubscribed from channel %ld.\n", channel_id);
         client->channels[channel_id].subscribed = 0;
     }
+    // Inform client
     if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
         perror("send");
     }
@@ -387,12 +415,15 @@ void unsubscribe(long channel_id, client_t *client) {
 
 
 void next(client_t *client) {
+    // Find the next message available for a client, if there is one.
     char return_msg[MAXDATASIZE];
     time_t min_time = time(NULL);
     int next_channel;
     msg_t *next_msg = NULL;
     int client_subscribed_to_any_channel = 0;
 
+    // Check subscribed channels for available messages
+    // And which is oldest if there is more than one.
     for (long channel_id = 0; channel_id <  NUMCHANNELS; channel_id++) {
         if (client->channels[channel_id].subscribed == 1) {
             client_subscribed_to_any_channel = 1;
@@ -414,12 +445,14 @@ void next(client_t *client) {
         }
     }
 
+    // Perform some checks
     if (client_subscribed_to_any_channel == 0) {
         sprintf(return_msg, "Not subscribed to any channels.\n");
     
     } else if (next_msg == NULL) {
         return_msg[0] = 0; // Empty string
     
+    // Else update client's channel head pointer and return message.
     } else {
         pthread_rwlock_rdlock(&rw_msg_locks[0]); // Read lock
         read_message(next_channel, client); // Move head foward
@@ -433,15 +466,18 @@ void next(client_t *client) {
 
 
 void nextChannel(long channel_id, client_t *client) {
+    // Find the next message available for a client on specified ID, if there is one.
     char return_msg[MAXDATASIZE];
     msg_t *message_to_read;
     
+    // Check the channel ID is valid and subscribed to
     if (channel_id < 0 || channel_id > 255) {
         sprintf(return_msg, "Invalid channel: %ld.\n", channel_id);
     
     } else if (client->channels[channel_id].subscribed == 0) {
         sprintf(return_msg, "Not subscribed to channel %ld.\n", channel_id);
     
+    // Then find the latest message in channel, update client head pointer
     } else {
         pthread_rwlock_wrlock(&rw_msg_locks[0]); // Write (and read) lock
         message_to_read = read_message(channel_id, client);
@@ -452,7 +488,7 @@ void nextChannel(long channel_id, client_t *client) {
         }
         pthread_rwlock_unlock(&rw_msg_locks[0]); // Unlock
     }
-
+    // Send message to client
     if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
         perror("send");
     }
@@ -460,9 +496,10 @@ void nextChannel(long channel_id, client_t *client) {
 
 
 void sendMsg(long channel_id, client_t *client, char *message) {
-    // Check for invalid channel
+    // Client is sending a message to a channel
     char return_msg[MAXDATASIZE];
     
+    // Create new message object with relevant string, ID, and time information
     pthread_rwlock_rdlock(&rw_msg_locks[0]); // Read lock
     msg_t *msg_struct = &messages_msg[messages_counts[NUMCHANNELS]]; // Points
     memcpy(msg_struct->string, message, MAXMESSAGELENGTH);
@@ -470,15 +507,15 @@ void sendMsg(long channel_id, client_t *client, char *message) {
     msg_struct->time = time(NULL);
     pthread_rwlock_unlock(&rw_msg_locks[0]); // Unlock
 
-    // Increment channel ID count and total count
-
-
+    // Check channel ID is valid
     if (channel_id < 0 || channel_id > 255) {
         sprintf(return_msg, "Invalid channel: %ld.\n", channel_id);
         if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
             perror("send");
         }
     }
+
+    // Increment channel ID count and total count
     pthread_rwlock_wrlock(&rw_msg_locks[1]); // Write lock to message counts shm
     messages_counts[channel_id]++;
     messages_counts[NUMCHANNELS]++;
@@ -504,14 +541,17 @@ void sendMsg(long channel_id, client_t *client, char *message) {
 
 
 int bye(client_t *client) {
+    // Close the client process
     childClose();
     return 0; // Required to stop server signal
 }
 
 void childClose() {
+    // Destroy lock variables
     pthread_rwlock_destroy(&rw_msg_locks[0]);
     pthread_rwlock_destroy(&rw_msg_locks[1]);
 
+    // Shutdown connection and process
     close(new_fd);
     printf("Client disconnected\n");
     kill(getpid(), SIGTERM); // Child processes close themselves
@@ -522,6 +562,7 @@ void childClose() {
 void handleSIGINT(int _) {
     (void)_; // To stop the compiler complaining
 
+    // Destroy lock variables
     pthread_rwlock_destroy(&rw_msg_locks[0]);
     pthread_rwlock_destroy(&rw_msg_locks[1]);
 
@@ -550,8 +591,7 @@ void handleSIGINT(int _) {
     kill(0, SIGTERM);
     exit(1);
 }
-// Linked list / data structure methods //
-// No locks in the following as all locks surround the calls to the below functions
+
 
 void handleSIGCHLD(int signum) {
   int stat;
@@ -559,6 +599,11 @@ void handleSIGCHLD(int signum) {
   /*Kills all the zombie processes*/
   while(waitpid(-1, &stat, WNOHANG) > 0);
 }
+
+
+
+// Linked list / data structure methods //
+// No locks in the following as all locks surround the calls to the below functions
 
 msgnode_t* node_add(msgnode_t *head, msg_t *message) {
     // create new node to add to list
