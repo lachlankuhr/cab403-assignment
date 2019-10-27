@@ -1,5 +1,5 @@
 # Makefile for client server program
-CFLAGS=-O2
+#CFLAGS=-02
 
 # Target to compile and build both client and server
 all: clean server client
