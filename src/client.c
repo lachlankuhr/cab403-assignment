@@ -293,7 +293,6 @@ void* nextThreadFunc(void *args_sent) {
 void* livefeedThreadFunc(void *args_sent) {
     // Receive arguments sent
     struct thread_args *args = (struct thread_args *)args_sent;
-    printf("Thing: %d\n", args->id);
 
     char command[100];
     char buf[MAXDATASIZE];

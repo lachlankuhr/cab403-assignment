@@ -20,7 +20,7 @@
 #define MAXMESSAGES 1000        // Max messages that can be stored
 #define MAXMESSAGELENGTH 1024   // Ensure messages max size
 #define NUMCHANNELS 256         // 0 to 255
-#define MAXCLIENTS 20           // At least 10 clients can connect
+#define MAXCLIENTS 100           // At least 10 clients can connect
 
 
 // Global variables
@@ -357,7 +357,9 @@ void subscribe(long channel_id, client_t *client) {
         sprintf(return_msg, "Subscribed to channel %ld.\n", channel_id);
         client->channels[channel_id].subscribed = 1;
 
-        pthread_rwlock_rdlock(&rw_msg_locks[0]); // Read lock
+        while (pthread_rwlock_tryrdlock(&rw_msg_locks[0]) != 0) {
+            sleep(0.1);
+        } // Read lock
         client->read_msg[channel_id] = messages[channel_id]; // Point client at last message in the channel
         pthread_rwlock_unlock(&rw_msg_locks[0]); // Unlock
     }
@@ -377,7 +379,9 @@ void channels(client_t *client) {
     for (long channel_id = 0; channel_id < NUMCHANNELS; channel_id++) {
         if (client->channels[channel_id].subscribed == 1) {
 
-            pthread_rwlock_rdlock(&rw_msg_locks[1]); // Read lock
+            while (pthread_rwlock_tryrdlock(&rw_msg_locks[1]) != 0) {
+                sleep(0.1);
+            } // Read lock
             sprintf(buf, "%ld\t%ld\t%d\t%d\n", channel_id, (long)messages_counts[channel_id],
                 client->channels[channel_id].read, get_number_unread_messages(channel_id, client));
             pthread_rwlock_unlock(&rw_msg_locks[1]); // Unlock
@@ -428,11 +432,15 @@ void next(client_t *client) {
         if (client->channels[channel_id].subscribed == 1) {
             client_subscribed_to_any_channel = 1;
 
-            pthread_rwlock_rdlock(&rw_msg_locks[0]); // Read lock
+            while (pthread_rwlock_tryrdlock(&rw_msg_locks[0]) != 0) {
+                sleep(0.1);
+            } // Read lock
             msg_t *message = get_next_message(channel_id, client); // just get and not move head forward
             pthread_rwlock_unlock(&rw_msg_locks[0]); // Unlock
 
-            pthread_rwlock_rdlock(&rw_msg_locks[0]); // Read lock
+            while (pthread_rwlock_tryrdlock(&rw_msg_locks[0]) != 0) {
+                sleep(0.1);
+            } // Read lock
             // Make sure the oldest available message is returned
             if (message != NULL) {
                 if (message->time < min_time) {
@@ -454,7 +462,9 @@ void next(client_t *client) {
     
     // Else update client's channel head pointer and return message.
     } else {
-        pthread_rwlock_rdlock(&rw_msg_locks[0]); // Read lock
+        while(pthread_rwlock_tryrdlock(&rw_msg_locks[0]) != 0) {
+            sleep(0.1);
+        } // Read lock
         read_message(next_channel, client); // Move head foward
         pthread_rwlock_unlock(&rw_msg_locks[0]); // Unlock
         sprintf(return_msg, "%d:%s\n", next_channel, next_msg->string);  
@@ -479,7 +489,9 @@ void nextChannel(long channel_id, client_t *client) {
     
     // Then find the latest message in channel, update client head pointer
     } else {
-        pthread_rwlock_wrlock(&rw_msg_locks[0]); // Write (and read) lock
+        while(pthread_rwlock_trywrlock(&rw_msg_locks[0]) != 0) {
+            sleep(0.1);
+        } // Write (and read) lock
         message_to_read = read_message(channel_id, client);
         if (message_to_read == NULL) {
             return_msg[0] = 0;
@@ -500,7 +512,9 @@ void sendMsg(long channel_id, client_t *client, char *message) {
     char return_msg[MAXDATASIZE];
     
     // Create new message object with relevant string, ID, and time information
-    pthread_rwlock_rdlock(&rw_msg_locks[0]); // Read lock
+    while (pthread_rwlock_tryrdlock(&rw_msg_locks[0]) != 0){
+        sleep(0.1);
+    }; // Read lock
     msg_t *msg_struct = &messages_msg[messages_counts[NUMCHANNELS]]; // Points
     memcpy(msg_struct->string, message, MAXMESSAGELENGTH);
     msg_struct->user = client->id;
@@ -516,13 +530,17 @@ void sendMsg(long channel_id, client_t *client, char *message) {
     }
 
     // Increment channel ID count and total count
-    pthread_rwlock_wrlock(&rw_msg_locks[1]); // Write lock to message counts shm
+    while (pthread_rwlock_trywrlock(&rw_msg_locks[1]) != 0){
+        sleep(0.1);
+    }; // Write lock to message counts shm
     messages_counts[channel_id]++;
     messages_counts[NUMCHANNELS]++;
     pthread_rwlock_unlock(&rw_msg_locks[1]); // Unlock
 
     // Construct the node for the linked list
-    pthread_rwlock_wrlock(&rw_msg_locks[0]); // Write lock to messages shm
+    while (pthread_rwlock_trywrlock(&rw_msg_locks[0]) != 0){
+        sleep(0.1);
+    } // Write lock to messages shm
     msgnode_t *newhead = node_add(messages[channel_id], msg_struct);
 
     if (newhead == NULL) {

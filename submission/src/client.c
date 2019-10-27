@@ -20,6 +20,7 @@ int thread_states[MAX_THREADS]; // Status of any threads created
 pthread_t threads[MAX_THREADS]; // Threads created for NEXT or LIVEFEED
 pthread_mutex_t socket_lock; // Setup socket lock to ensure clients synced
 
+
 int main(int argc, char **argv) {
     // Setup the signal handling for SIGINT signal
     signal(SIGINT, handleSIGINT);
@@ -86,13 +87,13 @@ int main(int argc, char **argv) {
             thread_args_t args;
             args.channel = channel_id;
             args.id = next_thread_id;
+            thread_states[next_thread_id] = 1; // Update state tracker
 
             if ((rc = pthread_create(&threads[next_thread_id],  
             NULL, nextThreadFunc, (void *)&args))) {
                 printf("ERROR; return code from pthread_create() is %d\n", rc);
                 exit(-1);
             }
-            thread_states[next_thread_id] = 1; // Update state tracker
 
         // LIVEFEED client handles thread creation and NEXT polling loop
         } else if (strcmp(command, "LIVEFEED") == 0) {
@@ -119,13 +120,13 @@ int main(int argc, char **argv) {
             thread_args_t args;
             args.channel = channel_id;
             args.id = next_thread_id;
+            thread_states[next_thread_id] = 1; // Update state tracker
 
             if ((rc = pthread_create(&threads[next_thread_id], 
                 NULL, livefeedThreadFunc, (void *)&args))) {
                 printf("ERROR; return code from pthread_create() is %d\n", rc);
                 exit(-1);
             }
-            thread_states[next_thread_id] = 1; // Update state tracker
 
         // All other commands are fully handled by the server and a response waited upon.
         // This response can be an empty response or an error allowing the client to continue.
@@ -324,7 +325,7 @@ void* livefeedThreadFunc(void *args_sent) {
         // Stop if an error received back
         if (strncmp(buf, "Not", 3) == 0) {
             thread_states[args->id] = 0;
-            printf("Livefeed cancelled\n");
+            printf("Livefeed thread %d cancelled\n", args->id);
             break;
         }
         sleep(0.1); // Stop resource hogging
@@ -332,7 +333,6 @@ void* livefeedThreadFunc(void *args_sent) {
 
     // Update the thread a finished and exit if the loop breaks.
     // Generally LIVEFEED will be stoped with the "STOP" command.
-    thread_states[args->id] = 0;
     pthread_exit(NULL);
 }
 
@@ -349,11 +349,10 @@ void closeThreads() {
 
     // Close all active threads when STOP is entered or client closed
     for (int i = 0; i < MAX_THREADS; i++) {
-
         if (thread_states[i] == 1) {
             printf("Cancelling thread %d\n", i);
             if ((rc = pthread_cancel(threads[i]))) {
-                printf("Failed to cancel thread or already cancelled #%d: %d\n", i, rc);
+                printf("Failed to cancel thread or already cancelled #%d, error: %d\n", i, rc);
                 exit(-1);
             }
             thread_states[i] = 0;
@@ -364,11 +363,11 @@ void closeThreads() {
 
 void closeConnection() {
     
-    // Inform user
-    printf("\nClosing client...\n");
-    
     // Close threads
     closeThreads();
+
+    // Inform user
+    printf("\nClosing client...\n");
 
     // Inform server of exit command so it can implement BYE procedure
     char command[MAXDATASIZE];
