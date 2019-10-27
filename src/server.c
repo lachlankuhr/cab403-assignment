@@ -20,7 +20,7 @@
 #define MAXMESSAGES 1000        // Max messages that can be stored
 #define MAXMESSAGELENGTH 1024   // Ensure messages max size
 #define NUMCHANNELS 256         // 0 to 255
-#define MAXCLIENTS 20           // At least 10 clients can connect
+#define MAXCLIENTS 100           // At least 10 clients can connect
 
 
 // Global variables
