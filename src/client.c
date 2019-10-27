@@ -18,7 +18,7 @@
 int sockfd;
 int thread_states[MAX_THREADS];
 pthread_t threads[MAX_THREADS];
-
+pthread_mutex_t socket_lock; // Setup socket lock to ensure clients synced
 
 int main(int argc, char **argv) {
     // Setup the signal handling for SIGINT signal
@@ -131,6 +131,7 @@ int main(int argc, char **argv) {
         // This response can be an empty response or an error allowing the client to continue.
         } else { 
             // Send client command entered
+            pthread_mutex_lock(&socket_lock);
             if (send(sockfd, original_command, MAXDATASIZE, 0) == -1) {
                 perror("send");
             }
@@ -139,6 +140,7 @@ int main(int argc, char **argv) {
             if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
                 perror("recv.");
             }
+            pthread_mutex_unlock(&socket_lock);
             buf[numbytes] = '\0';
             printf("%s", buf);
         }
@@ -178,11 +180,14 @@ void startClient(int argc, char **argv) {
 	}
 
     // Receive the startup message
-    int numbytes;  
+    int numbytes;
+    pthread_mutex_lock(&socket_lock);
     if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
 		perror("recv");
 		exit(1);
 	}
+    pthread_mutex_unlock(&socket_lock);
+
 	buf[numbytes] = '\0';
 	printf("%s", buf);
 
@@ -195,6 +200,9 @@ void startClient(int argc, char **argv) {
     for (int i = 0; i < MAX_THREADS; i++) {
         thread_states[i] = 0;
     }
+
+    // Setup socket lock to ensure clients synced
+    pthread_mutex_init(&socket_lock, NULL);
 }
 
 
@@ -261,15 +269,17 @@ void* nextThreadFunc(void *args_sent) {
     }
     
     // Send the correct NEXT command to server
+    pthread_mutex_lock(&socket_lock);        // Lock
     if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
         perror("send");
     }
-
     // Receive the response
     int numbytes;  
     if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
         perror("recv.");
     }
+    pthread_mutex_unlock(&socket_lock);      // Unlock
+
     buf[numbytes] = '\0';
     printf("%s", buf);
     
@@ -294,22 +304,27 @@ void* livefeedThreadFunc(void *args_sent) {
     } else if (channel_id != -1) {
         sprintf(command, "NEXT %d", channel_id);
     }
-    
+
     // Loop send the command
+    int numbytes;  
     while (1) {
+        pthread_mutex_lock(&socket_lock);        // Lock
         if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
             perror("send");
         }
         // Receive the response
-        int numbytes;  
         if ((numbytes = recv(sockfd, buf, MAXDATASIZE, 0)) == -1) {
             perror("recv.");
         }
+        pthread_mutex_unlock(&socket_lock);        // Unlock
+
         buf[numbytes] = '\0';
         printf("%s", buf);
         
         // Stop if an error received back
         if (strncmp(buf, "Not", 3) == 0) {
+            thread_states[args->id] = 0;
+            printf("Livefeed cancelled\n");
             break;
         }
         sleep(0.1); // Stop resource hogging
@@ -358,6 +373,8 @@ void closeConnection() {
     // Inform server of exit command so it can implement BYE procedure
     char command[MAXDATASIZE];
     sprintf(command, "BYE");
+
+    // No need to lock when closing it
     if (send(sockfd, command, MAXDATASIZE, 0) == -1) {
         perror("send");
         exit(1);

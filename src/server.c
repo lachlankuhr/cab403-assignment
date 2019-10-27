@@ -36,9 +36,8 @@ msgnode_t *messages_nodes;  // Array of all msg_t nodes
 msg_t *messages_msg;        // Array of all msg_t messages
 int *messages_counts;       // Array of msg counts by channel, last index is total
 
-int smfd1, smfd2, smfd3, smfd4;          // SHM handle IDs
-pthread_rwlock_t rwlock_messages;
-pthread_rwlock_t rwlock_counts;
+int smfd1, smfd2, smfd3, smfd4, smfd5;          // SHM handle IDs
+pthread_rwlock_t *rw_msg_locks;
 
 int main(int argc, char **argv) {
     // Setup the signal handling for SIGINT signal
@@ -104,43 +103,47 @@ void setupSharedMem() {
     size_t size2 = MAXMESSAGES * sizeof(msgnode_t);
     size_t size3 = MAXMESSAGES * sizeof(msg_t);
     size_t size4 = (NUMCHANNELS+1) * sizeof(int);
+    size_t size5 = 2 * sizeof(pthread_rwlock_t);
 
     // Create a shared memory objects
     smfd1 = shm_open("/messages", O_RDWR | O_CREAT, 0600);
     smfd2 = shm_open("/messagesnodes", O_RDWR | O_CREAT, 0600);
     smfd3 = shm_open("/messagesmsg", O_RDWR | O_CREAT, 0600);
     smfd4 = shm_open("/counts", O_RDWR | O_CREAT, 0600);
+    smfd5 = shm_open("/locks", O_RDWR | O_CREAT, 0600);
 
     // Resize to fit
     ftruncate(smfd1, size1);
     ftruncate(smfd2, size2);
     ftruncate(smfd3, size3);
     ftruncate(smfd4, size4);
+    ftruncate(smfd5, size5);
 
     // Map objects
     messages = mmap(NULL, size1, PROT_READ | PROT_WRITE, MAP_SHARED, smfd1, 0); // Must be in SHM (by experimentation)
     messages_nodes = mmap(NULL, size2, PROT_READ | PROT_WRITE, MAP_SHARED, smfd2, 0);
     messages_msg = mmap(NULL, size3, PROT_READ | PROT_WRITE, MAP_SHARED, smfd3, 0);
     messages_counts = mmap(NULL, size4, PROT_READ | PROT_WRITE, MAP_SHARED, smfd4, 0);
+    rw_msg_locks = mmap(NULL, size5, PROT_READ | PROT_WRITE, MAP_SHARED, smfd5, 0);
 
     // Initalise message list heads
     for (int i = 0; i < NUMCHANNELS; i++) {
         messages[i] = NULL;
     }
-
     for (int i = 0; i < MAXMESSAGES; i++) {
         messages_nodes[i].msg = NULL;
         messages_nodes[i].next = NULL;
     }
 
-
-    // Initalise counts of messages sent to channels. Last index is total.
+    // Initialise counts of messages sent to channels. Last index is total.
     for (int i = 0; i < NUMCHANNELS+1; i++) {
         messages_counts[i] = 0;
     }
 
-    pthread_rwlock_init(&rwlock_messages, NULL);
-    pthread_rwlock_init(&rwlock_counts, NULL);
+    // Initialise reader writer locks
+    // First lock for messages, second lock for messages_counts
+    pthread_rwlock_init(&rw_msg_locks[0], NULL);
+    pthread_rwlock_init(&rw_msg_locks[1], NULL);
 }
 
 
@@ -334,9 +337,9 @@ void subscribe(long channel_id, client_t *client) {
         sprintf(return_msg, "Subscribed to channel %ld.\n", channel_id);
         client->channels[channel_id].subscribed = 1;
 
-        pthread_rwlock_rdlock(&rwlock_messages); // Read lock
+        pthread_rwlock_rdlock(&rw_msg_locks[0]); // Read lock
         client->read_msg[channel_id] = messages[channel_id]; // Point client at last message in the channel
-        pthread_rwlock_unlock(&rwlock_messages); // Unlock
+        pthread_rwlock_unlock(&rw_msg_locks[0]); // Unlock
     }
 
     if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
@@ -352,10 +355,10 @@ void channels(client_t *client) {
     for (long channel_id = 0; channel_id < NUMCHANNELS; channel_id++) {
         if (client->channels[channel_id].subscribed == 1) {
 
-            pthread_rwlock_rdlock(&rwlock_counts); // Read lock
+            pthread_rwlock_rdlock(&rw_msg_locks[1]); // Read lock
             sprintf(buf, "%ld\t%ld\t%d\t%d\n", channel_id, (long)messages_counts[channel_id],
                 client->channels[channel_id].read, get_number_unread_messages(channel_id, client));
-            pthread_rwlock_unlock(&rwlock_counts); // Unlock
+            pthread_rwlock_unlock(&rw_msg_locks[1]); // Unlock
             strcat(return_msg, buf);
         }
     }
@@ -394,11 +397,11 @@ void next(client_t *client) {
         if (client->channels[channel_id].subscribed == 1) {
             client_subscribed_to_any_channel = 1;
 
-            pthread_rwlock_wrlock(&rwlock_messages); // Write lock
+            pthread_rwlock_rdlock(&rw_msg_locks[0]); // Read lock
             msg_t *message = get_next_message(channel_id, client); // just get and not move head forward
-            pthread_rwlock_unlock(&rwlock_messages); // Unlock
+            pthread_rwlock_unlock(&rw_msg_locks[0]); // Unlock
 
-            pthread_rwlock_rdlock(&rwlock_messages); // Read lock
+            pthread_rwlock_rdlock(&rw_msg_locks[0]); // Read lock
             // Make sure the oldest available message is returned
             if (message != NULL) {
                 if (message->time < min_time) {
@@ -407,7 +410,7 @@ void next(client_t *client) {
                     next_channel = channel_id;
                 }
             }
-            pthread_rwlock_unlock(&rwlock_messages); // Unlock
+            pthread_rwlock_unlock(&rw_msg_locks[0]); // Unlock
         }
     }
 
@@ -418,9 +421,9 @@ void next(client_t *client) {
         return_msg[0] = 0; // Empty string
     
     } else {
-        pthread_rwlock_rdlock(&rwlock_messages); // Read lock
+        pthread_rwlock_rdlock(&rw_msg_locks[0]); // Read lock
         read_message(next_channel, client); // Move head foward
-        pthread_rwlock_unlock(&rwlock_messages); // Unlock
+        pthread_rwlock_unlock(&rw_msg_locks[0]); // Unlock
         sprintf(return_msg, "%d:%s\n", next_channel, next_msg->string);  
     }
     if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
@@ -440,14 +443,14 @@ void nextChannel(long channel_id, client_t *client) {
         sprintf(return_msg, "Not subscribed to channel %ld.\n", channel_id);
     
     } else {
-        pthread_rwlock_wrlock(&rwlock_messages); // Write (and read) lock
+        pthread_rwlock_wrlock(&rw_msg_locks[0]); // Write (and read) lock
         message_to_read = read_message(channel_id, client);
         if (message_to_read == NULL) {
             return_msg[0] = 0;
         } else {
             sprintf(return_msg, "%ld:%s\n", channel_id, message_to_read->string); 
         }
-        pthread_rwlock_unlock(&rwlock_messages); // Unlock
+        pthread_rwlock_unlock(&rw_msg_locks[0]); // Unlock
     }
 
     if (send(client->socket, return_msg, MAXDATASIZE, 0) == -1) {
@@ -460,12 +463,12 @@ void sendMsg(long channel_id, client_t *client, char *message) {
     // Check for invalid channel
     char return_msg[MAXDATASIZE];
     
-    pthread_rwlock_rdlock(&rwlock_messages); // Read lock
+    pthread_rwlock_rdlock(&rw_msg_locks[0]); // Read lock
     msg_t *msg_struct = &messages_msg[messages_counts[NUMCHANNELS]]; // Points
     memcpy(msg_struct->string, message, MAXMESSAGELENGTH);
     msg_struct->user = client->id;
     msg_struct->time = time(NULL);
-    pthread_rwlock_unlock(&rwlock_messages); // Unlock
+    pthread_rwlock_unlock(&rw_msg_locks[0]); // Unlock
 
     // Increment channel ID count and total count
 
@@ -476,13 +479,13 @@ void sendMsg(long channel_id, client_t *client, char *message) {
             perror("send");
         }
     }
-    pthread_rwlock_wrlock(&rwlock_counts); // Write lock to message counts shm
+    pthread_rwlock_wrlock(&rw_msg_locks[1]); // Write lock to message counts shm
     messages_counts[channel_id]++;
     messages_counts[NUMCHANNELS]++;
-    pthread_rwlock_unlock(&rwlock_counts); // Unlock
+    pthread_rwlock_unlock(&rw_msg_locks[1]); // Unlock
 
     // Construct the node for the linked list
-    pthread_rwlock_wrlock(&rwlock_messages); // Write lock to messages shm
+    pthread_rwlock_wrlock(&rw_msg_locks[0]); // Write lock to messages shm
     msgnode_t *newhead = node_add(messages[channel_id], msg_struct);
 
     if (newhead == NULL) {
@@ -490,7 +493,7 @@ void sendMsg(long channel_id, client_t *client, char *message) {
         exit(EXIT_FAILURE);
     }
     messages[channel_id] = newhead;
-    pthread_rwlock_unlock(&rwlock_messages); // Unlock
+    pthread_rwlock_unlock(&rw_msg_locks[0]); // Unlock
     
     // Send back nothing because otherwise its blocking
     if (send(client->socket, "", MAXDATASIZE, 0) == -1) {
@@ -506,8 +509,8 @@ int bye(client_t *client) {
 }
 
 void childClose() {
-    pthread_rwlock_destroy(&rwlock_messages);
-    pthread_rwlock_destroy(&rwlock_counts);
+    pthread_rwlock_destroy(&rw_msg_locks[0]);
+    pthread_rwlock_destroy(&rw_msg_locks[1]);
 
     close(new_fd);
     printf("Client disconnected\n");
@@ -519,8 +522,8 @@ void childClose() {
 void handleSIGINT(int _) {
     (void)_; // To stop the compiler complaining
 
-    pthread_rwlock_destroy(&rwlock_messages);
-    pthread_rwlock_destroy(&rwlock_counts);
+    pthread_rwlock_destroy(&rw_msg_locks[0]);
+    pthread_rwlock_destroy(&rw_msg_locks[1]);
 
     // Unmap and close shared memory
     munmap(messages, NUMCHANNELS * sizeof(msgnode_t*));
